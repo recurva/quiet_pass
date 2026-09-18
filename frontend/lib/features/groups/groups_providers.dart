@@ -20,7 +20,8 @@ final myGroupsProvider = FutureProvider<List<AppGroup>>((ref) {
   return ref.watch(groupsRepositoryProvider).fetchMyGroups();
 });
 
-final groupMembersProvider = FutureProvider.family<List<HouseMember>, String>((ref, groupId) {
+final groupMembersProvider =
+    FutureProvider.autoDispose.family<List<HouseMember>, String>((ref, groupId) {
   return ref.watch(groupsRepositoryProvider).fetchHouseMembers(groupId);
 });
 
@@ -78,4 +79,18 @@ final groupReservationsLiveRefreshProvider = Provider.autoDispose.family<void, S
 final groupReservationEventsProvider =
     StreamProvider.autoDispose.family<AppReservation, String>((ref, groupId) {
   return ref.watch(groupStatusClientProvider(groupId)).reservations;
+});
+
+/// Refetches the member list whenever a `member_joined` event arrives —
+/// previously nothing did this at all, so an already-open session only
+/// learned about a new housemate by being fully restarted.
+final groupMembersLiveRefreshProvider = Provider.autoDispose.family<void, String>((ref, groupId) {
+  ref.listen(groupMemberJoinedEventsProvider(groupId), (previous, next) {
+    next.whenData((_) => ref.invalidate(groupMembersProvider(groupId)));
+  });
+});
+
+final groupMemberJoinedEventsProvider =
+    StreamProvider.autoDispose.family<void, String>((ref, groupId) {
+  return ref.watch(groupStatusClientProvider(groupId)).memberJoined;
 });

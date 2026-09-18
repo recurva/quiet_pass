@@ -47,6 +47,7 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    ref.watch(groupMembersLiveRefreshProvider(widget.group.id));
     final membersAsync = ref.watch(groupMembersProvider(widget.group.id));
     final statusesAsync = ref.watch(groupStatusesProvider(widget.group.id));
     final me = ref.watch(currentBackendUserProvider).valueOrNull;

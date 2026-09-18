@@ -1,13 +1,15 @@
+import json
 import secrets
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.authz import require_membership
-from app.api.deps import get_current_user, get_db
+from app.api.deps import get_current_user, get_db, get_redis
 from app.core.logging import get_logger
 from app.models.group import Group
 from app.models.membership import Membership, MembershipRole
@@ -15,6 +17,7 @@ from app.models.user import User
 from app.schemas.group import GroupCreate, GroupJoin, GroupRead
 from app.schemas.membership import MembershipRead
 from app.services.reservation_service import seed_default_spaces
+from app.services.status_service import group_channel
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/groups", tags=["groups"])
@@ -69,6 +72,7 @@ async def join_group(
     payload: GroupJoin,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    redis: Redis = Depends(get_redis),
 ) -> Membership:
     """Join a group as a plain member via its invite code."""
     result = await db.execute(select(Group).where(Group.invite_code == payload.invite_code))
@@ -87,6 +91,21 @@ async def join_group(
         ) from exc
 
     await db.refresh(membership)
+
+    # Existing members have no other way to learn about this — unlike
+    # status/nudge/reservation, nothing previously published a membership
+    # change, so an already-open session only ever saw a new joiner after
+    # being fully restarted (a fresh fetch on provider creation). Payload
+    # only needs to be enough for the client to know to refetch the member
+    # list; it doesn't carry the joiner's display name itself.
+    payload_out = {
+        "event": "member_joined",
+        "group_id": str(group.id),
+        "user_id": str(current_user.id),
+    }
+    await redis.publish(group_channel(group.id), json.dumps(payload_out))
+    logger.info("group.member_joined", group_id=str(group.id), user_id=str(current_user.id))
+
     return membership
 
 

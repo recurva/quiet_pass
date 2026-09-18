@@ -34,6 +34,7 @@ class GroupStatusClient {
   final _statusesController = StreamController<Map<String, MemberStatus>>.broadcast();
   final _nudgesController = StreamController<AppNudge>.broadcast();
   final _reservationsController = StreamController<AppReservation>.broadcast();
+  final _memberJoinedController = StreamController<void>.broadcast();
 
   /// Emits the full current `{userId: MemberStatus}` map on every change
   /// (including the initial snapshot).
@@ -48,6 +49,12 @@ class GroupStatusClient {
   /// since "list of bookings" doesn't have the same natural
   /// latest-value-per-key shape [statuses] does.
   Stream<AppReservation> get reservations => _reservationsController.stream;
+
+  /// Fires once per member who joins the group, in real time — no payload,
+  /// just a signal to refetch the member list (same "refetch on event"
+  /// approach as [reservations], for the same reason: membership doesn't
+  /// have a natural latest-value-per-key shape either).
+  Stream<void> get memberJoined => _memberJoinedController.stream;
 
   Future<void> connect() async {
     if (_disposed) return;
@@ -99,6 +106,10 @@ class GroupStatusClient {
         if (!_reservationsController.isClosed) {
           _reservationsController.add(AppReservation.fromJson(data));
         }
+      case 'member_joined':
+        if (!_memberJoinedController.isClosed) {
+          _memberJoinedController.add(null);
+        }
     }
   }
 
@@ -116,5 +127,6 @@ class GroupStatusClient {
     _statusesController.close();
     _nudgesController.close();
     _reservationsController.close();
+    _memberJoinedController.close();
   }
 }

@@ -59,6 +59,7 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
     // Keeps the reservation/chore lists refetched live as WebSocket
     // `reservation` events arrive — see the provider's doc comment.
     ref.watch(groupReservationsLiveRefreshProvider(groupId));
+    ref.watch(groupMembersLiveRefreshProvider(groupId));
 
     final spacesAsync = ref.watch(groupSpacesProvider(groupId));
     final reservationsAsync = ref.watch(groupReservationsProvider(groupId));
