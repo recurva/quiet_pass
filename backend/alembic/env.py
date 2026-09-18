@@ -18,18 +18,22 @@ from app.models import (  # noqa: F401  (registers models on Base)
 )
 
 config = context.config
-config.set_main_option("sqlalchemy.url", settings.database_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
 
+# Read settings.database_url directly rather than round-tripping it through
+# config.set_main_option/get_main_option: those go through configparser,
+# which treats a bare "%" as the start of its own interpolation syntax and
+# raises on any password containing a URL-encoded character (e.g. "%40" for
+# "@") — a real password class, not an edge case worth routing around.
+
 
 def run_migrations_offline() -> None:
-    url = config.get_main_option("sqlalchemy.url")
     context.configure(
-        url=url,
+        url=settings.database_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -47,7 +51,7 @@ def do_run_migrations(connection) -> None:
 
 async def run_migrations_online() -> None:
     connectable: AsyncEngine = create_async_engine(
-        config.get_main_option("sqlalchemy.url"), poolclass=pool.NullPool
+        settings.database_url, poolclass=pool.NullPool
     )
 
     async with connectable.connect() as connection:
