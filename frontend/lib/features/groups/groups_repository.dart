@@ -1,0 +1,138 @@
+import '../../core/api_client.dart';
+import '../../theme/app_colors.dart';
+import 'group_models.dart';
+import 'house_status_wire.dart';
+import 'nudge_wire.dart';
+
+/// Wraps the backend's user/group endpoints for the Flutter side. The
+/// caller's identity always comes from the Bearer token ApiClient attaches,
+/// never from a parameter here.
+class GroupsRepository {
+  GroupsRepository(this._client);
+
+  final ApiClient _client;
+
+  /// GET /users/me: fetches the caller's User row, provisioning it
+  /// server-side on first call after sign-in.
+  Future<AppUser> fetchOrCreateMe() async {
+    final json = await _client.get('/users/me');
+    return AppUser.fromJson(json as Map<String, dynamic>);
+  }
+
+  Future<List<AppGroup>> fetchMyGroups() async {
+    final json = await _client.get('/groups/mine');
+    return (json as List<dynamic>)
+        .map((entry) => AppGroup.fromJson(entry as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<AppGroup> createGroup(String name) async {
+    final json = await _client.post('/groups', body: {'name': name});
+    return AppGroup.fromJson(json as Map<String, dynamic>);
+  }
+
+  Future<void> joinGroup(String inviteCode) async {
+    await _client.post('/groups/join', body: {'invite_code': inviteCode});
+  }
+
+  Future<List<AppMembership>> fetchMembers(String groupId) async {
+    final json = await _client.get('/groups/$groupId/members');
+    return (json as List<dynamic>)
+        .map((entry) => AppMembership.fromJson(entry as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<AppUser> fetchUser(String userId) async {
+    final json = await _client.get('/users/$userId');
+    return AppUser.fromJson(json as Map<String, dynamic>);
+  }
+
+  /// Members of a group, each paired with their profile. N+1 over
+  /// GET /users/{id}, run in parallel; fine for typical house sizes.
+  Future<List<HouseMember>> fetchHouseMembers(String groupId) async {
+    final memberships = await fetchMembers(groupId);
+    final users = await Future.wait(memberships.map((m) => fetchUser(m.userId)));
+    return [
+      for (var i = 0; i < memberships.length; i++)
+        HouseMember(user: users[i], role: memberships[i].role),
+    ];
+  }
+
+  Future<void> setMyStatus(String groupId, HouseStatus status, int ttlSeconds) async {
+    await _client.put(
+      '/groups/$groupId/status',
+      body: {'status': status.wireValue, 'ttl_seconds': ttlSeconds},
+    );
+  }
+
+  /// Sends a nudge. [durationMinutes] is required for [NudgeType.quietPulse]
+  /// and must be omitted for every preset — the caller only ever supplies a
+  /// type, never free text; the server renders the actual wording.
+  Future<void> sendNudge(String groupId, NudgeType type, {int? durationMinutes}) async {
+    await _client.post(
+      '/groups/$groupId/nudges',
+      body: {
+        'type': type.wireValue,
+        if (durationMinutes != null) 'duration_minutes': durationMinutes,
+      },
+    );
+  }
+
+  /// Registers (or re-registers) this device's FCM token with the backend,
+  /// so nudges reach it via push even when the app isn't open. Safe to call
+  /// repeatedly — the backend upserts by token.
+  Future<void> registerDeviceToken(String token, {String platform = 'android'}) async {
+    await _client.post('/device-tokens', body: {'token': token, 'platform': platform});
+  }
+
+  Future<void> unregisterDeviceToken(String token) async {
+    await _client.delete('/device-tokens?token=${Uri.encodeQueryComponent(token)}');
+  }
+
+  Future<List<AppSpace>> fetchSpaces(String groupId) async {
+    final json = await _client.get('/groups/$groupId/spaces');
+    return (json as List<dynamic>)
+        .map((entry) => AppSpace.fromJson(entry as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<List<AppReservation>> fetchReservations(String groupId) async {
+    final json = await _client.get('/groups/$groupId/reservations');
+    return (json as List<dynamic>)
+        .map((entry) => AppReservation.fromJson(entry as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Books a space. [startTime] is sent as UTC regardless of what timezone
+  /// it was constructed in locally — the backend only ever deals in UTC.
+  Future<(AppReservation, AppChore)> createReservation(
+    String groupId,
+    String spaceId,
+    DateTime startTime,
+    int durationMinutes,
+  ) async {
+    final json = await _client.post(
+      '/groups/$groupId/spaces/$spaceId/reservations',
+      body: {
+        'start_time': startTime.toUtc().toIso8601String(),
+        'duration_minutes': durationMinutes,
+      },
+    );
+    final map = json as Map<String, dynamic>;
+    return (
+      AppReservation.fromJson(map['reservation'] as Map<String, dynamic>),
+      AppChore.fromJson(map['chore'] as Map<String, dynamic>),
+    );
+  }
+
+  Future<List<AppChore>> fetchChores(String groupId) async {
+    final json = await _client.get('/groups/$groupId/chores');
+    return (json as List<dynamic>)
+        .map((entry) => AppChore.fromJson(entry as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> markChoreDone(String choreId) async {
+    await _client.patch('/chores/$choreId/done');
+  }
+}

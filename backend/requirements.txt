@@ -1,0 +1,32 @@
+# --- Web framework ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+# --- Settings / config ---
+pydantic==2.10.4
+pydantic-settings==2.7.1
+
+# --- Database (Postgres, async) ---
+sqlalchemy==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+greenlet==3.1.1
+
+# --- Redis (live status + pub/sub) ---
+redis==5.2.1
+
+# --- Auth (verifies Firebase phone-auth ID tokens by hand, no service
+# account key needed: see app/core/firebase.py) ---
+PyJWT[crypto]==2.10.1
+httpx==0.28.1
+
+# --- Push (FCM send — this direction *does* need a service account;
+# see app/services/push_service.py) ---
+firebase-admin==6.5.0
+google-auth==2.36.0
+
+# --- Logging ---
+structlog==24.4.0
+
+# --- Dev / migrations tooling (psycopg used only by Alembic's offline/sync needs if required) ---
+python-dotenv==1.0.1

@@ -1,0 +1,50 @@
+name: quietpass
+description: "QuietPass, a calm real-time status and coordination app for shared homes."
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State management
+  flutter_riverpod: ^2.6.1
+
+  # Typography (Plus Jakarta Sans)
+  google_fonts: ^6.3.2
+
+  # Responsive scaling, the core of the "works on every screen size" plan
+  flutter_screenutil: ^5.9.3
+
+  # Firebase (phone auth, push notifications)
+  firebase_core: ^3.8.0
+  firebase_auth: ^5.3.3
+  firebase_messaging: ^15.1.5
+
+  # Secure on-device storage for the Firebase ID token (sent as the backend Bearer header)
+  flutter_secure_storage: ^9.2.2
+
+  # Backend HTTP calls
+  http: ^1.2.2
+
+  # Live group status stream
+  web_socket_channel: ^3.0.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: 4.0.0
+
+flutter:
+  uses-material-design: true
+
+# Notes:
+# Versions are pinned for reproducible builds. When you first set up, run
+#   flutter pub get
+# If a transitive constraint complains on your SDK, run
+#   flutter pub upgrade --major-versions
+# and re-pin the resolved versions here.

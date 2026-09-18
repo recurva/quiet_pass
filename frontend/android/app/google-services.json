@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "713454357946",
+    "project_id": "quietpass-app",
+    "storage_bucket": "quietpass-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:713454357946:android:f182d7df5b2a500b29a183",
+        "android_client_info": {
+          "package_name": "com.quietpass.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDe3N3KfT8fGfeUOLGGv51cz7GGHT2l8RI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
