@@ -26,25 +26,29 @@ class StatusDurationRule(BaseModel):
     cap_minutes: int
 
 
+# One uniform rule for all four temporary statuses (the client simplified
+# this from the original per-status preset lists): 30 minutes to 8 hours,
+# in 30-minute steps. Open to Chat has no rule at all — it's excluded from
+# this dict entirely, which is what lets resolve_ttl_seconds/the router
+# treat "no rule found" as "this status has no duration concept."
+#
 # Source of truth for duration enforcement (see status_service.resolve_ttl_seconds).
 # The Flutter app mirrors these values for the picker UI — see
 # lib/features/groups/house_status_wire.dart's STATUS_DURATION_RULES comment
 # for the same "must stay in sync" note that already applies to the
 # HouseStatus values themselves across schemas/status.py, app_colors.dart,
 # and house_status_wire.dart.
+_UNIFORM_TEMPORARY_STATUS_RULE = StatusDurationRule(
+    default_minutes=30,
+    allowed_minutes=tuple(range(30, 8 * 60 + 1, 30)),
+    cap_minutes=8 * 60,
+)
+
 STATUS_DURATION_RULES: dict[HouseStatus, StatusDurationRule] = {
-    HouseStatus.IN_CALL: StatusDurationRule(
-        default_minutes=30, allowed_minutes=(15, 30, 60, 120), cap_minutes=180
-    ),
-    HouseStatus.DEEP_FOCUS: StatusDurationRule(
-        default_minutes=120, allowed_minutes=(60, 120, 240), cap_minutes=360
-    ),
-    HouseStatus.SLEEPING_EARLY: StatusDurationRule(
-        default_minutes=480, allowed_minutes=(360, 480, 600), cap_minutes=720
-    ),
-    HouseStatus.AWAY: StatusDurationRule(
-        default_minutes=240, allowed_minutes=(120, 240, 480, 1440), cap_minutes=2880
-    ),
+    HouseStatus.IN_CALL: _UNIFORM_TEMPORARY_STATUS_RULE,
+    HouseStatus.DEEP_FOCUS: _UNIFORM_TEMPORARY_STATUS_RULE,
+    HouseStatus.SLEEPING_EARLY: _UNIFORM_TEMPORARY_STATUS_RULE,
+    HouseStatus.AWAY: _UNIFORM_TEMPORARY_STATUS_RULE,
 }
 
 

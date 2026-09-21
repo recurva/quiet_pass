@@ -32,18 +32,28 @@ class StatusDurationRule {
   final List<int> allowedMinutes;
 }
 
+/// One uniform rule for all four temporary statuses — the client
+/// simplified this from the original per-status preset lists: 30 minutes
+/// to 8 hours, in 30-minute steps, no 15-minute option. Open to Chat has
+/// no entry in [statusDurationRules] at all, which is what makes it show
+/// no duration row.
+const _uniformTemporaryStatusRule = StatusDurationRule(
+  defaultMinutes: 30,
+  allowedMinutes: [30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 390, 420, 450, 480],
+);
+
 const Map<HouseStatus, StatusDurationRule> statusDurationRules = {
-  HouseStatus.inCall: StatusDurationRule(defaultMinutes: 30, allowedMinutes: [15, 30, 60, 120]),
-  HouseStatus.deepFocus: StatusDurationRule(defaultMinutes: 120, allowedMinutes: [60, 120, 240]),
-  HouseStatus.sleepingEarly:
-      StatusDurationRule(defaultMinutes: 480, allowedMinutes: [360, 480, 600]),
-  HouseStatus.away: StatusDurationRule(defaultMinutes: 240, allowedMinutes: [120, 240, 480, 1440]),
+  HouseStatus.inCall: _uniformTemporaryStatusRule,
+  HouseStatus.deepFocus: _uniformTemporaryStatusRule,
+  HouseStatus.sleepingEarly: _uniformTemporaryStatusRule,
+  HouseStatus.away: _uniformTemporaryStatusRule,
 };
 
-/// "15m" / "1h" / "2h" / "24h" — every duration in [statusDurationRules] is
-/// a whole number of minutes or a whole number of hours, so this never
-/// needs to render a fractional value.
+/// "30m" / "1h" / "1.5h" / "8h" — the uniform 30-minute-step scale means
+/// odd multiples of 30 (90, 150, 210, ...) land on a half hour, so this
+/// has to handle a fractional value, not just whole hours.
 String formatDurationMinutes(int minutes) {
   if (minutes < 60) return '${minutes}m';
-  return '${minutes ~/ 60}h';
+  if (minutes % 60 == 0) return '${minutes ~/ 60}h';
+  return '${minutes / 60}h';
 }

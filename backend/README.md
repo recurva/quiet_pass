@@ -66,25 +66,19 @@ Key: `status:{group_id}:{user_id}` → status value. Statuses: Open to Chat,
 Deep Focus, In Call, Sleeping Early, Away. On every write, the change is
 published on `status:group:{group_id}`.
 
-**Per-status duration policy (the Time Limits spec).** Open to Chat is the
-one indefinite, uncapped status — `PUT .../status` with
+**Duration policy (the Time Limits spec).** Open to Chat is the one
+indefinite, uncapped status — `PUT .../status` with
 `{"status": "open_to_chat"}` sets the Redis key with no `EX` at all, rather
-than skipping the write. Every other status requires a `duration_minutes`
-chosen from its own allowed presets (or omits it to take that status's
-default), hard-capped server-side regardless of what the client sends —
-see `STATUS_DURATION_RULES` in `app/schemas/status.py`:
+than skipping the write. The other four statuses (In Call, Deep Focus,
+Sleeping Early, Away) all share one uniform rule — the client simplified
+this from an earlier per-status preset design: `duration_minutes` must be
+a multiple of 30 from 30 up to 480 (8h), defaulting to 30 if omitted, hard
+capped at 8h server-side regardless of what the client sends. See
+`STATUS_DURATION_RULES` in `app/schemas/status.py`.
 
-| Status | Default | Allowed | Cap |
-|---|---|---|---|
-| In Call | 30m | 15m / 30m / 1h / 2h | 3h |
-| Deep Focus | 2h | 1h / 2h / 4h | 6h |
-| Sleeping Early | 8h | 6h / 8h / 10h | 12h |
-| Away | 4h | 2h / 4h / 8h / 24h | 48h |
-
-A `duration_minutes` outside the allowed list is a clean `400`
-(`InvalidStatusDurationError`), not a silent clamp — the cap is only a
-second line of defense against a client bypassing its own picker UI, since
-every allowed value is already within its status's cap by construction.
+A `duration_minutes` outside that set is a clean `400`
+(`InvalidStatusDurationError`), not a silent clamp or a UI-only
+restriction — the cap is enforced here, not just hidden from the picker.
 
 **No "no status" state.** An expired or never-set status resolves to Open
 to Chat, not null — `StatusRead.status` is never `None` on the wire. Two
