@@ -62,10 +62,48 @@ the live path.
 
 ## Live status (Redis, not Postgres)
 
-Key: `status:{group_id}:{user_id}` → status value, `EX` TTL of 2h / 4h / 8h
-(`StatusTtl` enum). On every write, the change is published on
-`status:group:{group_id}`. Statuses: Open to Chat, Deep Focus, In Call,
-Sleeping Early, Away.
+Key: `status:{group_id}:{user_id}` → status value. Statuses: Open to Chat,
+Deep Focus, In Call, Sleeping Early, Away. On every write, the change is
+published on `status:group:{group_id}`.
+
+**Per-status duration policy (the Time Limits spec).** Open to Chat is the
+one indefinite, uncapped status — `PUT .../status` with
+`{"status": "open_to_chat"}` sets the Redis key with no `EX` at all, rather
+than skipping the write. Every other status requires a `duration_minutes`
+chosen from its own allowed presets (or omits it to take that status's
+default), hard-capped server-side regardless of what the client sends —
+see `STATUS_DURATION_RULES` in `app/schemas/status.py`:
+
+| Status | Default | Allowed | Cap |
+|---|---|---|---|
+| In Call | 30m | 15m / 30m / 1h / 2h | 3h |
+| Deep Focus | 2h | 1h / 2h / 4h | 6h |
+| Sleeping Early | 8h | 6h / 8h / 10h | 12h |
+| Away | 4h | 2h / 4h / 8h / 24h | 48h |
+
+A `duration_minutes` outside the allowed list is a clean `400`
+(`InvalidStatusDurationError`), not a silent clamp — the cap is only a
+second line of defense against a client bypassing its own picker UI, since
+every allowed value is already within its status's cap by construction.
+
+**No "no status" state.** An expired or never-set status resolves to Open
+to Chat, not null — `StatusRead.status` is never `None` on the wire. Two
+places implement this the same way: `status_service.get_status` returns
+`HouseStatus.OPEN_TO_CHAT` for a missing Redis key, and
+`get_group_statuses` simply omits members with no key at all, relying on
+callers to render that absence identically (open to chat) rather than
+needing the group's full membership list to fill gaps itself. Nothing
+server-side fires when a TTL naturally lapses — Redis just lets the key
+expire silently; a client holding a stale status has to notice the
+crossover itself by comparing the broadcast `expires_at` to now (see
+`MemberStatus.effectiveStatus` in the Flutter app).
+
+**`expires_at` is the top-priority field for display.** Both `set_status`'s
+publish payload and every `StatusRead` include an absolute UTC
+`expires_at` (null for Open to Chat), computed from the TTL at write/read
+time — not just the relative `ttl_seconds`, which drifts the moment a
+client caches it. The Flutter status badge renders it as "until 6:30 PM"
+in the viewer's own local time.
 
 ## Live status stream (WebSocket)
 

@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status as http_status
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +10,7 @@ from app.core.logging import get_logger
 from app.models.user import User
 from app.schemas.status import StatusRead, StatusSet
 from app.services import status_service
+from app.services.status_service import InvalidStatusDurationError
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/groups/{group_id}/status", tags=["status"])
@@ -25,12 +26,25 @@ async def set_my_status(
 ) -> StatusRead:
     """Set the caller's own status. Only members of the group may do this."""
     await require_membership(db, group_id=group_id, user_id=current_user.id)
+
+    try:
+        ttl_seconds = status_service.resolve_ttl_seconds(payload.status, payload.duration_minutes)
+    except InvalidStatusDurationError as exc:
+        logger.warning(
+            "status.invalid_duration",
+            group_id=str(group_id),
+            user_id=str(current_user.id),
+            status=payload.status.value,
+            requested_minutes=payload.duration_minutes,
+        )
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
     return await status_service.set_status(
         redis,
         group_id=group_id,
         user_id=current_user.id,
         status=payload.status,
-        ttl_seconds=int(payload.ttl_seconds),
+        ttl_seconds=ttl_seconds,
     )
 
 

@@ -58,11 +58,26 @@ class GroupsRepository {
     ];
   }
 
-  Future<void> setMyStatus(String groupId, HouseStatus status, int ttlSeconds) async {
+  /// [durationMinutes] is ignored server-side for [HouseStatus.openToChat]
+  /// (indefinite, no duration concept) and, for every other status, must be
+  /// omitted to take that status's default or be one of its allowed
+  /// presets — see `statusDurationRules` and the backend's
+  /// `STATUS_DURATION_RULES`, which is the actual enforcement point.
+  Future<void> setMyStatus(String groupId, HouseStatus status, {int? durationMinutes}) async {
     await _client.put(
       '/groups/$groupId/status',
-      body: {'status': status.wireValue, 'ttl_seconds': ttlSeconds},
+      body: {
+        'status': status.wireValue,
+        if (durationMinutes != null) 'duration_minutes': durationMinutes,
+      },
     );
+  }
+
+  /// PATCH /users/me: the only self-editable field today. Used both from
+  /// the onboarding name prompt and the profile screen.
+  Future<AppUser> updateDisplayName(String displayName) async {
+    final json = await _client.patch('/users/me', body: {'display_name': displayName});
+    return AppUser.fromJson(json as Map<String, dynamic>);
   }
 
   /// Sends a nudge. [durationMinutes] is required for [NudgeType.quietPulse]

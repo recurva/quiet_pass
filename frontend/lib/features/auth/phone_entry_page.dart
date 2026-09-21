@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
@@ -7,6 +8,13 @@ import '../../theme/theme_x.dart';
 import 'auth_controller.dart';
 import 'auth_state.dart';
 import 'otp_entry_page.dart';
+
+/// India-only for now, matching the simpler Recurva flow: the field only
+/// ever collects the national number, this prefix is fixed and prepended
+/// on submit. If QuietPass ever needs other countries, this becomes a
+/// picker instead of a constant — not a speculative abstraction worth
+/// building before it's needed.
+const _countryCode = '+91';
 
 /// First screen of the sign-in flow: collect a phone number and ask Firebase
 /// to send an SMS code. Reads only from `context.colors` / `Space` / `Radii`,
@@ -62,31 +70,59 @@ class _PhoneEntryPageState extends ConsumerState<PhoneEntryPage> {
                 style: context.text.bodySmall,
               ),
               SizedBox(height: Space.xl.h),
-              TextField(
-                controller: _controller,
-                keyboardType: TextInputType.phone,
-                style: context.text.bodyLarge?.copyWith(color: c.ink),
-                decoration: InputDecoration(
-                  hintText: '+1 555 555 1234',
-                  hintStyle: context.text.bodyLarge?.copyWith(color: c.ink3),
-                  filled: true,
-                  fillColor: c.surface2,
-                  contentPadding: EdgeInsets.symmetric(
-                    horizontal: Space.md.w,
-                    vertical: Space.md.h,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(Radii.md.r),
-                    borderSide: BorderSide(color: c.line2),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(Radii.md.r),
-                    borderSide: BorderSide(color: c.line2),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(Radii.md.r),
-                    borderSide: BorderSide(color: c.accent),
-                  ),
+              Container(
+                decoration: BoxDecoration(
+                  color: c.surface2,
+                  borderRadius: BorderRadius.circular(Radii.md.r),
+                  border: Border.all(color: c.line2),
+                ),
+                child: Row(
+                  children: [
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: Space.md.w),
+                      child: Text(
+                        _countryCode,
+                        style: context.text.bodyLarge?.copyWith(
+                          color: c.ink2,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    SizedBox(
+                      height: 24.r,
+                      child: VerticalDivider(color: c.line2, width: 1, thickness: 1),
+                    ),
+                    Expanded(
+                      child: TextField(
+                        controller: _controller,
+                        keyboardType: TextInputType.phone,
+                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                        style: context.text.bodyLarge?.copyWith(color: c.ink),
+                        decoration: InputDecoration(
+                          hintText: '98765 43210',
+                          hintStyle: context.text.bodyLarge?.copyWith(color: c.ink3),
+                          filled: true,
+                          fillColor: Colors.transparent,
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: Space.md.w,
+                            vertical: Space.md.h,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(Radii.md.r),
+                            borderSide: BorderSide.none,
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(Radii.md.r),
+                            borderSide: BorderSide.none,
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(Radii.md.r),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
               if (flowState is OtpFlowError) ...[
@@ -121,8 +157,8 @@ class _PhoneEntryPageState extends ConsumerState<PhoneEntryPage> {
   }
 
   void _submit() {
-    final phoneNumber = _controller.text.trim();
-    if (phoneNumber.isEmpty) return;
-    ref.read(otpFlowControllerProvider.notifier).sendCode(phoneNumber);
+    final nationalNumber = _controller.text.trim();
+    if (nationalNumber.isEmpty) return;
+    ref.read(otpFlowControllerProvider.notifier).sendCode('$_countryCode$nationalNumber');
   }
 }

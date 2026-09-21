@@ -62,21 +62,37 @@ class AppMembership {
 
 /// A live status entry as broadcast over the group WebSocket (or read via
 /// the plain REST status endpoints). Mirrors the backend's `StatusRead`.
+///
+/// [status] is never null on the wire — an expired or never-set status
+/// resolves to [HouseStatus.openToChat] server-side (the Time Limits spec's
+/// "open by default" rule), so there's no separate "no status" state to
+/// model here. [expiresAt] is null exactly when the status is Open to
+/// Chat, which never expires.
 class MemberStatus {
-  const MemberStatus({required this.userId, required this.status, required this.ttlSeconds});
+  const MemberStatus({required this.userId, required this.status, required this.expiresAt});
 
   factory MemberStatus.fromJson(Map<String, dynamic> json) {
-    final rawStatus = json['status'] as String?;
+    final rawExpiresAt = json['expires_at'] as String?;
     return MemberStatus(
       userId: json['user_id'] as String,
-      status: rawStatus == null ? null : HouseStatusWire.fromWire(rawStatus),
-      ttlSeconds: json['ttl_seconds'] as int?,
+      status: HouseStatusWire.fromWire(json['status'] as String),
+      expiresAt: rawExpiresAt == null ? null : DateTime.parse(rawExpiresAt).toUtc(),
     );
   }
 
   final String userId;
-  final HouseStatus? status;
-  final int? ttlSeconds;
+  final HouseStatus status;
+  final DateTime? expiresAt;
+
+  /// The status actually shown, accounting for a timer that has lapsed
+  /// since this entry was last fetched or broadcast: nothing server-side
+  /// pushes an update at the exact expiry moment (Redis just lets the key
+  /// silently expire), so a client holding a stale [MemberStatus] has to
+  /// notice the crossover itself by comparing [expiresAt] to now.
+  HouseStatus effectiveStatus(DateTime now) {
+    if (expiresAt != null && !now.isBefore(expiresAt!)) return HouseStatus.openToChat;
+    return status;
+  }
 }
 
 /// A housemate combined with their group role, for the detail screen.

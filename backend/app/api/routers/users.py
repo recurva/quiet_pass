@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user, get_db
 from app.core.logging import get_logger
 from app.models.user import User
-from app.schemas.user import UserRead
+from app.schemas.user import UserRead, UserUpdate
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/users", tags=["users"])
@@ -17,6 +17,24 @@ async def read_current_user(current_user: User = Depends(get_current_user)) -> U
     """Fetch-or-create: the caller is resolved (and provisioned on first
     sight) entirely inside get_current_user from the verified token.
     """
+    return current_user
+
+
+@router.patch("/me", response_model=UserRead)
+async def update_current_user(
+    payload: UserUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """The only field a user can self-edit today: their display name. It
+    starts out defaulted to their phone number (see get_current_user's
+    first-sight provisioning) until they set a real one here, from
+    onboarding or the profile screen.
+    """
+    current_user.display_name = payload.display_name
+    await db.commit()
+    await db.refresh(current_user)
+    logger.info("user.display_name_updated", user_id=str(current_user.id))
     return current_user
 
 

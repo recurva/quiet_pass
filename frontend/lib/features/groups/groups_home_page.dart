@@ -12,6 +12,7 @@ import 'group_detail_page.dart';
 import 'group_models.dart';
 import 'groups_providers.dart';
 import 'join_house_sheet.dart';
+import 'name_sheet.dart';
 
 /// Lands here right after sign-in: fetches (and provisions, on first call)
 /// the backend User, then either lists the caller's houses or prompts them
@@ -24,7 +25,7 @@ class GroupsHomePage extends ConsumerStatefulWidget {
 }
 
 class _GroupsHomePageState extends ConsumerState<GroupsHomePage> {
-  bool _promptedForPush = false;
+  bool _promptedThisSession = false;
 
   @override
   Widget build(BuildContext context) {
@@ -39,9 +40,9 @@ class _GroupsHomePageState extends ConsumerState<GroupsHomePage> {
     // that was the earlier bug: it kept re-asking every session instead
     // of respecting a decision the user already made).
     ref.read(pushClientProvider).start();
-    if (!_promptedForPush && me.hasValue) {
-      _promptedForPush = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) => _maybePromptForPush());
+    if (!_promptedThisSession && me.hasValue) {
+      _promptedThisSession = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _runOnboardingPrompts(me.value!));
     }
 
     return Scaffold(
@@ -61,7 +62,23 @@ class _GroupsHomePageState extends ConsumerState<GroupsHomePage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Hi, ${user.displayName}', style: context.text.titleLarge),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text('Hi, ${user.displayName}', style: context.text.titleLarge),
+                    ),
+                    IconButton(
+                      onPressed: () => _editName(user.displayName),
+                      style: IconButton.styleFrom(
+                        backgroundColor: c.surface2,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(Radii.sm.r),
+                        ),
+                      ),
+                      icon: Icon(Icons.edit_outlined, color: c.ink2, size: 18.r),
+                    ),
+                  ],
+                ),
                 SizedBox(height: Space.xs.h),
                 Text('Your houses', style: context.text.bodySmall),
                 SizedBox(height: Space.lg.h),
@@ -108,6 +125,30 @@ class _GroupsHomePageState extends ConsumerState<GroupsHomePage> {
         ),
       ),
     );
+  }
+
+  Future<void> _runOnboardingPrompts(AppUser user) async {
+    // Name capture first (per the Time Limits spec's onboarding
+    // requirement), then push permission — sequential, not stacked, so the
+    // user only ever sees one sheet at a time.
+    await _maybePromptForName(user);
+    await _maybePromptForPush();
+  }
+
+  Future<void> _maybePromptForName(AppUser user) async {
+    if (!mounted) return;
+    // The backend defaults display_name to the phone number at first sight
+    // (see get_current_user's provisioning) — that equality is exactly how
+    // "never customized yet" is detected, with no separate "onboarded" flag
+    // needed anywhere.
+    if (user.displayName != user.phoneNumber) return;
+    await showEditNameSheet(context, initialValue: '', skippable: true);
+  }
+
+  Future<void> _editName(String currentName) async {
+    final me = ref.read(currentBackendUserProvider).valueOrNull;
+    final initial = me != null && me.displayName == me.phoneNumber ? '' : currentName;
+    await showEditNameSheet(context, initialValue: initial, skippable: true);
   }
 
   Future<void> _maybePromptForPush() async {

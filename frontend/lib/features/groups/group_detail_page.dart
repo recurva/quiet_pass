@@ -30,38 +30,54 @@ class GroupDetailPage extends ConsumerStatefulWidget {
 }
 
 class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
-  StatusTtlOption _selectedTtl = StatusTtlOption.fourHours;
   HouseStatus? _pendingStatus;
+  int? _pendingDurationMinutes;
   NudgeType? _sendingPreset;
   bool _sendingQuietPulse = false;
 
-  AppNudge? _bannerNudge;
-  Timer? _bannerTimer;
+  // A nudge must stay visible until the user actually dismisses it — no
+  // auto-dismiss timer. Keyed by id so the same nudge can't be queued
+  // twice if the WebSocket happens to redeliver it (e.g. a reconnect
+  // replaying a recent publish).
+  final List<AppNudge> _pendingNudges = [];
+
+  // Nothing server-side pushes an update at the exact moment a status's
+  // TTL lapses (Redis just lets the key expire silently) — this timer is
+  // what makes an already-open screen notice the crossover and flip a
+  // member's badge to Open to Chat without needing a fresh fetch.
+  Timer? _expiryTick;
+
+  @override
+  void initState() {
+    super.initState();
+    _expiryTick = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
+  }
 
   @override
   void dispose() {
-    _bannerTimer?.cancel();
+    _expiryTick?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final now = DateTime.now().toUtc();
     ref.watch(groupMembersLiveRefreshProvider(widget.group.id));
     final membersAsync = ref.watch(groupMembersProvider(widget.group.id));
     final statusesAsync = ref.watch(groupStatusesProvider(widget.group.id));
     final me = ref.watch(currentBackendUserProvider).valueOrNull;
     final statuses = statusesAsync.valueOrNull ?? const <String, MemberStatus>{};
-    final myStatus = me == null ? null : statuses[me.id]?.status;
+    final myEntry = me == null ? null : statuses[me.id];
+    final myEffectiveStatus = myEntry?.effectiveStatus(now) ?? HouseStatus.openToChat;
 
     ref.listen<AsyncValue<AppNudge>>(groupNudgesProvider(widget.group.id), (previous, next) {
       final nudge = next.valueOrNull;
       if (nudge == null) return;
-      _bannerTimer?.cancel();
-      setState(() => _bannerNudge = nudge);
-      _bannerTimer = Timer(const Duration(seconds: 6), () {
-        if (mounted) setState(() => _bannerNudge = null);
-      });
+      if (_pendingNudges.any((n) => n.id == nudge.id)) return;
+      setState(() => _pendingNudges.add(nudge));
     });
 
     return Scaffold(
@@ -69,15 +85,22 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
       body: SafeArea(
         child: Column(
           children: [
-            if (_bannerNudge != null)
+            if (_pendingNudges.isNotEmpty)
               Padding(
                 padding: EdgeInsets.fromLTRB(Space.base.w, Space.base.h, Space.base.w, 0),
-                child: _NudgeBanner(
-                  nudge: _bannerNudge!,
-                  onDismiss: () {
-                    _bannerTimer?.cancel();
-                    setState(() => _bannerNudge = null);
-                  },
+                child: Column(
+                  children: [
+                    for (final nudge in _pendingNudges)
+                      Padding(
+                        padding: EdgeInsets.only(bottom: Space.sm.h),
+                        child: _NudgeBanner(
+                          nudge: nudge,
+                          onDismiss: () => setState(
+                            () => _pendingNudges.removeWhere((n) => n.id == nudge.id),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
             Expanded(
@@ -88,7 +111,7 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
                   children: [
                     _header(context),
                     SizedBox(height: Space.lg.h),
-                    _yourStatusCard(context, myStatus),
+                    _yourStatusCard(context, myEffectiveStatus),
                     SizedBox(height: Space.base.h),
                     _nudgesCard(context),
                     SizedBox(height: Space.base.h),
@@ -118,7 +141,7 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
                           for (final member in members)
                             Padding(
                               padding: EdgeInsets.only(bottom: Space.sm.h),
-                              child: _memberRow(context, member, statuses[member.user.id]),
+                              child: _memberRow(context, member, statuses[member.user.id], now),
                             ),
                         ],
                       ),
@@ -177,8 +200,11 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
     );
   }
 
-  Widget _yourStatusCard(BuildContext context, HouseStatus? myStatus) {
+  Widget _yourStatusCard(BuildContext context, HouseStatus myEffectiveStatus) {
     final c = context.colors;
+    final displayedStatus = _pendingStatus ?? myEffectiveStatus;
+    final rule = statusDurationRules[displayedStatus];
+
     return Container(
       width: double.infinity,
       padding: EdgeInsets.all(Space.base.w),
@@ -206,26 +232,30 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
               for (final status in HouseStatus.values)
                 StatusChip(
                   status: status,
-                  selected: (_pendingStatus ?? myStatus) == status,
-                  onTap: () => _setStatus(status),
+                  selected: displayedStatus == status,
+                  onTap: () => _selectStatus(status),
                 ),
             ],
           ),
-          SizedBox(height: Space.md.h),
-          Row(
-            children: [
-              Text('Expires after', style: context.text.bodySmall),
-              SizedBox(width: Space.sm.w),
-              for (final option in StatusTtlOption.values) ...[
-                _TtlOption(
-                  option: option,
-                  selected: _selectedTtl == option,
-                  onTap: () => setState(() => _selectedTtl = option),
-                ),
+          // Open to Chat has no duration concept at all — no row shown.
+          if (rule != null) ...[
+            SizedBox(height: Space.md.h),
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: Space.xs.w,
+              runSpacing: Space.sm.h,
+              children: [
+                Text('For', style: context.text.bodySmall),
                 SizedBox(width: Space.xs.w),
+                for (final minutes in rule.allowedMinutes)
+                  DurationChip(
+                    label: formatDurationMinutes(minutes),
+                    selected: (_pendingDurationMinutes ?? rule.defaultMinutes) == minutes,
+                    onTap: () => _setStatus(displayedStatus, minutes),
+                  ),
               ],
-            ],
-          ),
+            ),
+          ],
         ],
       ),
     );
@@ -313,8 +343,10 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
     }
   }
 
-  Widget _memberRow(BuildContext context, HouseMember member, MemberStatus? status) {
+  Widget _memberRow(BuildContext context, HouseMember member, MemberStatus? status, DateTime now) {
     final c = context.colors;
+    final effectiveStatus = status?.effectiveStatus(now) ?? HouseStatus.openToChat;
+    final effectiveExpiresAt = effectiveStatus == HouseStatus.openToChat ? null : status?.expiresAt;
     return Container(
       width: double.infinity,
       padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.md.h),
@@ -352,52 +384,40 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
               ],
             ),
           ),
-          status?.status == null ? const NoStatusBadge() : StatusBadge(status: status!.status!),
+          StatusBadge(status: effectiveStatus, expiresAt: effectiveExpiresAt),
         ],
       ),
     );
   }
 
-  Future<void> _setStatus(HouseStatus status) async {
-    setState(() => _pendingStatus = status);
+  /// Tapping a status chip: Open to Chat applies immediately (no duration
+  /// concept). Any other status applies immediately too, at its default
+  /// duration — the picker row then lets the caller change to a different
+  /// allowed preset, which re-applies via [_setStatus] again. This keeps
+  /// the existing snappy "tap chip → set" feel while still satisfying the
+  /// spec's "pre-select the default but allow any allowed option."
+  Future<void> _selectStatus(HouseStatus status) async {
+    if (status == HouseStatus.openToChat) {
+      await _setStatus(status, null);
+      return;
+    }
+    await _setStatus(status, statusDurationRules[status]!.defaultMinutes);
+  }
+
+  Future<void> _setStatus(HouseStatus status, int? durationMinutes) async {
+    setState(() {
+      _pendingStatus = status;
+      _pendingDurationMinutes = durationMinutes;
+    });
     try {
       await ref
           .read(groupsRepositoryProvider)
-          .setMyStatus(widget.group.id, status, _selectedTtl.seconds);
+          .setMyStatus(widget.group.id, status, durationMinutes: durationMinutes);
+    } on ApiException catch (e) {
+      if (mounted) showAppSnackBar(context, e.message);
     } finally {
       if (mounted) setState(() => _pendingStatus = null);
     }
-  }
-}
-
-class _TtlOption extends StatelessWidget {
-  const _TtlOption({required this.option, required this.selected, required this.onTap});
-
-  final StatusTtlOption option;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: EdgeInsets.symmetric(horizontal: Space.sm.w, vertical: 4.h),
-        decoration: BoxDecoration(
-          color: selected ? c.accent : c.surface2,
-          borderRadius: BorderRadius.circular(Radii.pill.r),
-          border: Border.all(color: selected ? c.accent : c.line2),
-        ),
-        child: Text(
-          option.label,
-          style: context.text.bodySmall?.copyWith(
-            color: selected ? c.onAccent : c.ink2,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-    );
   }
 }
 
