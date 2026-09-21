@@ -94,3 +94,40 @@ final groupMemberJoinedEventsProvider =
     StreamProvider.autoDispose.family<void, String>((ref, groupId) {
   return ref.watch(groupStatusClientProvider(groupId)).memberJoined;
 });
+
+/// Unacknowledged nudges for a group — deliberately **not** `autoDispose`.
+/// A nudge must stay visible until the user dismisses it (the spec's whole
+/// point), including across leaving and returning to this screen; storing
+/// the list in the page's own `State` meant it reset every time the widget
+/// was torn down and recreated (e.g. navigating away and back), which is
+/// exactly the "flash and vanish" behavior the persistent inbox was meant
+/// to fix in the first place.
+///
+/// Side effect worth knowing: because this provider never disposes, its
+/// `ref.listen` below keeps [groupNudgesProvider] (and the WebSocket
+/// connection under it) alive for as long as the app runs, not just while
+/// the group screen is open — a reasonable tradeoff for "don't miss a
+/// nudge," but a real change from every other `autoDispose` provider in
+/// this file, which all close their WebSocket the moment nothing's
+/// watching them.
+class PendingNudgesNotifier extends FamilyNotifier<List<AppNudge>, String> {
+  @override
+  List<AppNudge> build(String groupId) {
+    ref.listen(groupNudgesProvider(groupId), (previous, next) {
+      final nudge = next.valueOrNull;
+      if (nudge == null) return;
+      if (state.any((n) => n.id == nudge.id)) return;
+      state = [...state, nudge];
+    });
+    return [];
+  }
+
+  void dismiss(String nudgeId) {
+    state = state.where((n) => n.id != nudgeId).toList();
+  }
+}
+
+final groupPendingNudgesProvider =
+    NotifierProvider.family<PendingNudgesNotifier, List<AppNudge>, String>(
+  PendingNudgesNotifier.new,
+);

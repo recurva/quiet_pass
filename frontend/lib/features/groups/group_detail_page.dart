@@ -35,12 +35,6 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
   NudgeType? _sendingPreset;
   bool _sendingQuietPulse = false;
 
-  // A nudge must stay visible until the user actually dismisses it — no
-  // auto-dismiss timer. Keyed by id so the same nudge can't be queued
-  // twice if the WebSocket happens to redeliver it (e.g. a reconnect
-  // replaying a recent publish).
-  final List<AppNudge> _pendingNudges = [];
-
   // Nothing server-side pushes an update at the exact moment a status's
   // TTL lapses (Redis just lets the key expire silently) — this timer is
   // what makes an already-open screen notice the crossover and flip a
@@ -72,32 +66,26 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
     final statuses = statusesAsync.valueOrNull ?? const <String, MemberStatus>{};
     final myEntry = me == null ? null : statuses[me.id];
     final myEffectiveStatus = myEntry?.effectiveStatus(now) ?? HouseStatus.openToChat;
-
-    ref.listen<AsyncValue<AppNudge>>(groupNudgesProvider(widget.group.id), (previous, next) {
-      final nudge = next.valueOrNull;
-      if (nudge == null) return;
-      if (_pendingNudges.any((n) => n.id == nudge.id)) return;
-      setState(() => _pendingNudges.add(nudge));
-    });
+    final pendingNudges = ref.watch(groupPendingNudgesProvider(widget.group.id));
 
     return Scaffold(
       backgroundColor: c.bg,
       body: SafeArea(
         child: Column(
           children: [
-            if (_pendingNudges.isNotEmpty)
+            if (pendingNudges.isNotEmpty)
               Padding(
                 padding: EdgeInsets.fromLTRB(Space.base.w, Space.base.h, Space.base.w, 0),
                 child: Column(
                   children: [
-                    for (final nudge in _pendingNudges)
+                    for (final nudge in pendingNudges)
                       Padding(
                         padding: EdgeInsets.only(bottom: Space.sm.h),
                         child: _NudgeBanner(
                           nudge: nudge,
-                          onDismiss: () => setState(
-                            () => _pendingNudges.removeWhere((n) => n.id == nudge.id),
-                          ),
+                          onDismiss: () => ref
+                              .read(groupPendingNudgesProvider(widget.group.id).notifier)
+                              .dismiss(nudge.id),
                         ),
                       ),
                   ],
