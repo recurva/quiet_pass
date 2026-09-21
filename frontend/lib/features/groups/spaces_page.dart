@@ -98,7 +98,7 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
                 ),
                 error: (error, _) => Padding(
                   padding: EdgeInsets.symmetric(vertical: Space.lg.h),
-                  child: Text('$error', style: context.text.bodySmall?.copyWith(color: c.ink3)),
+                  child: Text(friendlyErrorMessage(error), style: context.text.bodySmall?.copyWith(color: c.ink3)),
                 ),
                 data: (spaces) => Column(
                   children: [
@@ -134,7 +134,7 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
                 ),
                 error: (error, _) => Padding(
                   padding: EdgeInsets.symmetric(vertical: Space.lg.h),
-                  child: Text('$error', style: context.text.bodySmall?.copyWith(color: c.ink3)),
+                  child: Text(friendlyErrorMessage(error), style: context.text.bodySmall?.copyWith(color: c.ink3)),
                 ),
                 data: (chores) {
                   final mine = me == null

@@ -132,7 +132,7 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
                       error: (error, _) => Padding(
                         padding: EdgeInsets.symmetric(vertical: Space.lg.h),
                         child: Text(
-                          '$error',
+                          friendlyErrorMessage(error),
                           style: context.text.bodySmall?.copyWith(color: c.ink3),
                         ),
                       ),
@@ -239,21 +239,12 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
           ),
           // Open to Chat has no duration concept at all — no row shown.
           if (rule != null) ...[
-            SizedBox(height: Space.md.h),
-            Wrap(
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: Space.xs.w,
-              runSpacing: Space.sm.h,
-              children: [
-                Text('For', style: context.text.bodySmall),
-                SizedBox(width: Space.xs.w),
-                for (final minutes in rule.allowedMinutes)
-                  DurationChip(
-                    label: formatDurationMinutes(minutes),
-                    selected: (_pendingDurationMinutes ?? rule.defaultMinutes) == minutes,
-                    onTap: () => _setStatus(displayedStatus, minutes),
-                  ),
-              ],
+            SizedBox(height: Space.sm.h),
+            DurationSlider(
+              allowedMinutes: rule.allowedMinutes,
+              selectedMinutes: _pendingDurationMinutes ?? rule.defaultMinutes,
+              formatLabel: formatDurationMinutes,
+              onChangeEnd: (minutes) => _setStatus(displayedStatus, minutes),
             ),
           ],
         ],
@@ -355,36 +346,61 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
         borderRadius: BorderRadius.circular(Radii.md.r),
         border: Border.all(color: c.line),
       ),
-      child: Row(
+      // A Column, not a single Row with the badge as a trailing element —
+      // "Sleeping Early · until 10:34 PM" is long enough that squeezing it
+      // into the same row as the name/role pushed those into wrapping
+      // ("Collector" → "Collec-/tor") on narrower phones. The badge gets
+      // its own row below instead, so name/role always have the full
+      // width to themselves.
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 34.r,
-            height: 34.r,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(color: c.accent, shape: BoxShape.circle),
-            child: Text(
-              member.user.displayName.characters.take(2).toString().toUpperCase(),
-              style: context.text.labelLarge?.copyWith(
-                color: c.onAccent,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          SizedBox(width: Space.md.w),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  member.user.displayName,
-                  style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+          Row(
+            children: [
+              Container(
+                width: 34.r,
+                height: 34.r,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(color: c.accent, shape: BoxShape.circle),
+                child: Text(
+                  member.user.displayName.characters.take(2).toString().toUpperCase(),
+                  style: context.text.labelLarge?.copyWith(
+                    color: c.onAccent,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-                SizedBox(height: 1.h),
-                Text(member.role, style: context.text.bodySmall),
-              ],
+              ),
+              SizedBox(width: Space.md.w),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      member.user.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    SizedBox(height: 1.h),
+                    Text(
+                      member.role,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.text.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: Space.sm.h),
+          Padding(
+            padding: EdgeInsets.only(left: 34.r + Space.md.w),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: StatusBadge(status: effectiveStatus, expiresAt: effectiveExpiresAt),
             ),
           ),
-          StatusBadge(status: effectiveStatus, expiresAt: effectiveExpiresAt),
         ],
       ),
     );

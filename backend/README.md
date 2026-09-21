@@ -304,6 +304,33 @@ as status and nudges (step five), with their own `"event": "reservation"`
 payload — the WS route is a dumb relay (see Live status stream, above), so
 no route-level change was needed to add a third event type.
 
+## Deploying (Cloud Run) — the WebSocket timeout gotcha
+
+Cloud Run's **default request timeout is 300 seconds, and it applies to
+WebSocket connections** — not just plain HTTP requests. Every open
+`/ws` connection gets forcibly severed at the platform level every 5
+minutes, invisible to this app's own code (no `WebSocketDisconnect`, no
+exception — the infrastructure just cuts the connection, so nothing here
+gets a chance to log it). The client's own reconnect logic papers over
+this most of the time, but a nudge (or any event) published during one of
+those dead windows is silently lost, since nothing was listening.
+
+Always set the service's timeout to Cloud Run's max on deploy:
+
+```bash
+gcloud run deploy quietpass-backend \
+  --image=... \
+  --timeout=3600 \
+  ...
+```
+
+`gcloud run services update ... --timeout=3600` fixes an already-deployed
+service without a rebuild. A later `gcloud run deploy` that doesn't pass
+`--timeout` keeps the previous revision's value (Cloud Run only changes
+what you explicitly pass), but it's still worth including explicitly
+every time this command appears in a runbook — a copy-pasted command
+missing it is exactly how this regressed once already.
+
 ## Auth
 
 Every endpoint except `/health` and `/docs` requires

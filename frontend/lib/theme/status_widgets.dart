@@ -106,8 +106,99 @@ class StatusBadge extends StatelessWidget {
   }
 }
 
-/// One duration preset chip, used in the row shown after picking a status
-/// that isn't Open to Chat (which has no duration concept at all).
+/// A single-row duration picker: a slider snapped to [allowedMinutes]'
+/// steps, with the currently-selected value shown as text above it — this
+/// replaced an earlier one-chip-per-preset row, which read as visual
+/// clutter once the scale grew to sixteen 30-minute steps (30m through
+/// 8h). [allowedMinutes] must be a non-empty, evenly-ish spaced list;
+/// the slider itself only ever deals in the list's *index*, so the actual
+/// minute values don't need to be a strict arithmetic sequence.
+class DurationSlider extends StatefulWidget {
+  const DurationSlider({
+    super.key,
+    required this.allowedMinutes,
+    required this.selectedMinutes,
+    required this.formatLabel,
+    required this.onChangeEnd,
+  });
+
+  final List<int> allowedMinutes;
+  final int selectedMinutes;
+  final String Function(int minutes) formatLabel;
+
+  /// Fires once, when the drag ends — not on every intermediate step, which
+  /// would otherwise mean a network call (setting the status) per pixel
+  /// dragged over. Dragging itself only updates this widget's own local
+  /// state, so the label and thumb stay smooth without waiting on the
+  /// parent to round-trip a request and rebuild.
+  final ValueChanged<int> onChangeEnd;
+
+  @override
+  State<DurationSlider> createState() => _DurationSliderState();
+}
+
+class _DurationSliderState extends State<DurationSlider> {
+  late int _dragIndex = _indexOf(widget.selectedMinutes);
+
+  int _indexOf(int minutes) =>
+      widget.allowedMinutes.indexOf(minutes).clamp(0, widget.allowedMinutes.length - 1);
+
+  @override
+  void didUpdateWidget(DurationSlider oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Only follow an external change (e.g. switching to a different
+    // status, which resets the default) — never overwrite an in-progress
+    // drag with a stale prop.
+    if (widget.selectedMinutes != oldWidget.selectedMinutes) {
+      _dragIndex = _indexOf(widget.selectedMinutes);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text('For', style: context.text.bodySmall),
+            SizedBox(width: Space.xs.w),
+            Text(
+              widget.formatLabel(widget.allowedMinutes[_dragIndex]),
+              style: context.text.bodyLarge?.copyWith(
+                color: c.accent,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        SliderTheme(
+          data: SliderThemeData(
+            activeTrackColor: c.accent,
+            inactiveTrackColor: c.surface2,
+            thumbColor: c.accent,
+            overlayColor: c.accentTint,
+            trackHeight: 3.r,
+          ),
+          child: Slider(
+            value: _dragIndex.toDouble(),
+            min: 0,
+            max: (widget.allowedMinutes.length - 1).toDouble(),
+            divisions: widget.allowedMinutes.length - 1,
+            onChanged: (value) => setState(() => _dragIndex = value.round()),
+            onChangeEnd: (value) => widget.onChangeEnd(widget.allowedMinutes[value.round()]),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// One duration preset chip — still used by the quiet-pulse sheet's
+/// 15/30/60 min picker, which is short enough that a chip row still reads
+/// cleanly (unlike the status duration picker's sixteen steps, above).
 class DurationChip extends StatelessWidget {
   const DurationChip({
     super.key,

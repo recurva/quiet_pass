@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/api_client.dart';
 import '../../theme/theme_x.dart';
 import 'group_detail_page.dart';
 import 'groups_providers.dart';
@@ -27,7 +28,7 @@ class GroupDetailByIdPage extends ConsumerWidget {
       error: (error, _) => Scaffold(
         backgroundColor: c.bg,
         body: Center(
-          child: Text('$error', style: context.text.bodySmall?.copyWith(color: c.ink3)),
+          child: Text(friendlyErrorMessage(error), style: context.text.bodySmall?.copyWith(color: c.ink3)),
         ),
       ),
       data: (groups) {

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
+import '../../core/api_client.dart';
 import '../../theme/dimens.dart';
 import '../../theme/theme_x.dart';
 import '../push/push_permission_sheet.dart';
@@ -51,7 +52,7 @@ class _GroupsHomePageState extends ConsumerState<GroupsHomePage> {
         child: me.when(
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (error, _) => _ErrorState(
-            message: '$error',
+            message: friendlyErrorMessage(error),
             onRetry: () {
               ref.invalidate(currentBackendUserProvider);
               ref.invalidate(myGroupsProvider);
@@ -86,7 +87,7 @@ class _GroupsHomePageState extends ConsumerState<GroupsHomePage> {
                   child: groups.when(
                     loading: () => const Center(child: CircularProgressIndicator()),
                     error: (error, _) => _ErrorState(
-                      message: '$error',
+                      message: friendlyErrorMessage(error),
                       onRetry: () => ref.invalidate(myGroupsProvider),
                     ),
                     data: (list) =>

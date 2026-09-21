@@ -8,6 +8,8 @@ import 'api_config.dart';
 
 /// Thrown for any non-2xx backend response. [statusCode] lets callers branch
 /// on 401 (re-auth), 403 (not authorized for this group), 404, etc.
+/// [statusCode] is `0` for a request that never got a response at all (see
+/// [ApiClient._guarded]) — no response, so no real HTTP status to report.
 class ApiException implements Exception {
   ApiException(this.statusCode, this.message);
 
@@ -16,6 +18,17 @@ class ApiException implements Exception {
 
   @override
   String toString() => 'ApiException($statusCode): $message';
+}
+
+/// What every `error: (error, _) => ...` branch in this app should show,
+/// instead of interpolating the raw error (`'$error'`) directly: an
+/// [ApiException] already carries a message meant to be read by a user
+/// (either the backend's own `detail`, or [ApiClient._guarded]'s
+/// connection-failure text); anything else reaching this far is an
+/// unexpected error a user was never meant to see the internals of.
+String friendlyErrorMessage(Object error) {
+  if (error is ApiException) return error.message;
+  return 'Something went wrong. Please try again.';
 }
 
 /// Talks to the QuietPass backend. Every request is authorized with the
@@ -56,44 +69,76 @@ class ApiClient {
     };
   }
 
-  Future<dynamic> get(String path) async {
-    final response = await _http.get(_uri(path), headers: await _authHeaders());
-    return _decode(response);
+  Future<dynamic> get(String path) {
+    return _guarded(() async {
+      final response = await _http.get(_uri(path), headers: await _authHeaders());
+      return _decode(response);
+    });
   }
 
-  Future<dynamic> post(String path, {Object? body}) async {
-    final response = await _http.post(
-      _uri(path),
-      headers: await _authHeaders(),
-      body: body == null ? null : jsonEncode(body),
-    );
-    return _decode(response);
+  Future<dynamic> post(String path, {Object? body}) {
+    return _guarded(() async {
+      final response = await _http.post(
+        _uri(path),
+        headers: await _authHeaders(),
+        body: body == null ? null : jsonEncode(body),
+      );
+      return _decode(response);
+    });
   }
 
-  Future<dynamic> put(String path, {Object? body}) async {
-    final response = await _http.put(
-      _uri(path),
-      headers: await _authHeaders(),
-      body: body == null ? null : jsonEncode(body),
-    );
-    return _decode(response);
+  Future<dynamic> put(String path, {Object? body}) {
+    return _guarded(() async {
+      final response = await _http.put(
+        _uri(path),
+        headers: await _authHeaders(),
+        body: body == null ? null : jsonEncode(body),
+      );
+      return _decode(response);
+    });
   }
 
-  Future<dynamic> patch(String path, {Object? body}) async {
-    final response = await _http.patch(
-      _uri(path),
-      headers: await _authHeaders(),
-      body: body == null ? null : jsonEncode(body),
-    );
-    return _decode(response);
+  Future<dynamic> patch(String path, {Object? body}) {
+    return _guarded(() async {
+      final response = await _http.patch(
+        _uri(path),
+        headers: await _authHeaders(),
+        body: body == null ? null : jsonEncode(body),
+      );
+      return _decode(response);
+    });
   }
 
-  Future<void> delete(String path) async {
-    final response = await _http.delete(_uri(path), headers: await _authHeaders());
-    _decode(response);
+  Future<void> delete(String path) {
+    return _guarded(() async {
+      final response = await _http.delete(_uri(path), headers: await _authHeaders());
+      _decode(response);
+    });
   }
 
   Uri _uri(String path) => Uri.parse('$_baseUrl$path');
+
+  /// Every request routes through here so a DNS failure, a dropped
+  /// connection, or a timeout — anything below the HTTP layer, before a
+  /// response even exists to `_decode` — surfaces as the same clean
+  /// [ApiException] a real error response would, instead of a raw
+  /// `ClientException`/`SocketException` whose message ("Failed host
+  /// lookup: '...'  (OS Error: No address associated with hostname,
+  /// errno = 7)") is Dart/OS internals, not something to show a user.
+  /// [ApiException] itself and the auth-layer [StateError]s from
+  /// `_authHeaders` pass through unchanged — both already carry a message
+  /// meant to be seen (or handled specifically) by the caller.
+  Future<T> _guarded<T>(Future<T> Function() request) async {
+    try {
+      return await request();
+    } on ApiException {
+      rethrow;
+    } on StateError {
+      rethrow;
+    } catch (_) {
+      throw ApiException(0, 'Can\'t reach the server. Check your connection and try again.');
+    }
+  }
 
   dynamic _decode(http.Response response) {
     if (response.statusCode >= 200 && response.statusCode < 300) {
