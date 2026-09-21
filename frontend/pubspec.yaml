@@ -25,6 +25,12 @@ dependencies:
   firebase_auth: ^5.3.3
   firebase_messaging: ^15.1.5
 
+  # Renders a system notification for a push that arrives while
+  # FirebaseMessaging.onMessage fires (Android's own "this app counts as
+  # foreground" determination — not the same as the WS-banner-covers-it
+  # case, and not something firebase_messaging shows on its own).
+  flutter_local_notifications: ^18.0.1
+
   # Secure on-device storage for the Firebase ID token (sent as the backend Bearer header)
   flutter_secure_storage: ^9.2.2
 
