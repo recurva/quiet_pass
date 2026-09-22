@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../core/api_client.dart';
-import '../../theme/app_snackbar.dart';
 import '../../theme/dimens.dart';
 import '../../theme/theme_x.dart';
 import '../push/push_permission_sheet.dart';
@@ -36,15 +35,11 @@ class _GroupsHomePageState extends ConsumerState<GroupsHomePage> {
     final groups = ref.watch(myGroupsProvider);
 
     // Token-refresh + notification-tap wiring runs for the app's whole
-    // lifetime once signed in. The permission *prompt* is gated on the
-    // platform's own permission record, not an in-app flag: it keeps
-    // reappearing once per session for as long as the OS status is
-    // notDetermined (never actually granted or denied — includes tapping
-    // this sheet's own "Not now", which never calls requestPermission at
-    // all), stops for good once actually granted, and turns into a
-    // settings pointer instead of a re-ask once actually denied at the
-    // real OS dialog (the OS won't show its own prompt again past that
-    // point regardless of what this app does).
+    // lifetime once signed in. The permission *prompt* re-shows once per
+    // session for as long as it isn't actually granted, and stops for
+    // good the moment it is — see _maybePromptForPush for why this isn't
+    // narrowed to a "never asked" check (Android can't expose that as a
+    // distinct status).
     ref.read(pushClientProvider).start();
     if (!_promptedThisSession && me.hasValue) {
       _promptedThisSession = true;
@@ -162,32 +157,29 @@ class _GroupsHomePageState extends ConsumerState<GroupsHomePage> {
     final status = await ref.read(pushClientProvider).permissionStatus();
     if (!mounted) return;
 
-    if (status == AuthorizationStatus.notDetermined) {
-      await showPushPermissionSheet(context);
-      return;
-    }
-
-    // Already decided in an earlier session — don't re-ask (the OS won't
-    // show its own dialog again either past this point). If it was
-    // granted, make sure this device's current token is registered, in
-    // case it rotated since the last time.
+    // Already granted — just make sure this device's current token is
+    // registered, in case it rotated since the last session, and stop.
     if (status == AuthorizationStatus.authorized ||
         status == AuthorizationStatus.provisional) {
       await ref.read(pushClientProvider).registerCurrentToken();
       return;
     }
 
-    if (status == AuthorizationStatus.denied && mounted) {
-      // Can't show the OS prompt again once denied — Android and iOS both
-      // require going through system settings from here on. A snackbar
-      // rather than a sheet, since this is a one-line pointer, not a
-      // decision the user needs to make right now.
-      showAppSnackBar(
-        context,
-        'Notifications are off. Enable them in Settings → Apps → QuietPass → '
-        'Notifications to get nudges when the app is closed or locked.',
-      );
-    }
+    // Anything else — notDetermined, or denied — shows the rationale sheet,
+    // whose "Allow" calls the real requestPermission(). This is
+    // deliberately not narrowed to notDetermined only: Android's
+    // checkSelfPermission (what [AuthorizationStatus] is built from on
+    // Android) can't distinguish "never asked" from "asked and denied" —
+    // both just report denied — so gating on notDetermined meant a fresh
+    // install that had never been asked at all went straight to "already
+    // decided" and silently skipped the real system dialog entirely. It's
+    // safe to always attempt this: Android's own permission API is what
+    // decides whether to actually show a dialog or just return the
+    // existing decision instantly (once truly permanently denied, calling
+    // requestPermission again is a same-frame no-op, not a repeated
+    // prompt) — the OS already does the "don't pester the user" job this
+    // app doesn't need to duplicate with its own settings-redirect logic.
+    await showPushPermissionSheet(context);
   }
 }
 
