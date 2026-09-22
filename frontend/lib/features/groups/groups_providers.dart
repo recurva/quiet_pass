@@ -81,18 +81,19 @@ final groupReservationEventsProvider =
   return ref.watch(groupStatusClientProvider(groupId)).reservations;
 });
 
-/// Refetches the member list whenever a `member_joined` event arrives —
-/// previously nothing did this at all, so an already-open session only
-/// learned about a new housemate by being fully restarted.
+/// Refetches the member list whenever a `member_joined` or `member_left`
+/// event arrives — previously neither existed at all, so an already-open
+/// session only learned about a new housemate, or one whose account was
+/// deleted, by being fully restarted.
 final groupMembersLiveRefreshProvider = Provider.autoDispose.family<void, String>((ref, groupId) {
-  ref.listen(groupMemberJoinedEventsProvider(groupId), (previous, next) {
+  ref.listen(groupMemberListChangedEventsProvider(groupId), (previous, next) {
     next.whenData((_) => ref.invalidate(groupMembersProvider(groupId)));
   });
 });
 
-final groupMemberJoinedEventsProvider =
+final groupMemberListChangedEventsProvider =
     StreamProvider.autoDispose.family<void, String>((ref, groupId) {
-  return ref.watch(groupStatusClientProvider(groupId)).memberJoined;
+  return ref.watch(groupStatusClientProvider(groupId)).memberListChanged;
 });
 
 /// Unacknowledged nudges for a group — deliberately **not** `autoDispose`.

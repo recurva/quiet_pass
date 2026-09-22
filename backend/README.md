@@ -275,6 +275,17 @@ gcloud projects add-iam-policy-binding quietpass-app \
   --role="roles/firebaseauth.admin"
 ```
 
+**Fans out over the same WebSocket/Redis infrastructure as everything
+else** (status, nudges, reservations — see Live status stream, above),
+with its own `"event": "member_left"` payload, published to every group
+the deleted user belonged to — captured *before* the delete, since once
+the `Membership` rows cascade away there's no way to ask Postgres
+afterward which groups they were in. This is the exact mirror of
+`"event": "member_joined"` (published from `groups.py`'s `join_group`):
+without it, an already-open session on another member's device has no
+way to learn someone's account was deleted except by being fully
+restarted — the member just silently stays in the list.
+
 If neither credential path is configured, `delete_firebase_user` returns
 `False` rather than raising — the Postgres deletion still proceeds (the
 account becomes unusable locally either way), just without the matching

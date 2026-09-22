@@ -1,13 +1,18 @@
+import json
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from redis.asyncio import Redis
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, get_db
+from app.api.deps import get_current_user, get_db, get_redis
 from app.core.logging import get_logger
+from app.models.membership import Membership
 from app.models.user import User
 from app.schemas.user import UserRead, UserUpdate
 from app.services import firebase_auth_admin_service
+from app.services.status_service import group_channel
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/users", tags=["users"])
@@ -42,6 +47,7 @@ async def update_current_user(
 @router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_current_user(
     db: AsyncSession = Depends(get_db),
+    redis: Redis = Depends(get_redis),
     current_user: User = Depends(get_current_user),
 ) -> None:
     """Deletes the caller's account from both Firebase Auth and Postgres.
@@ -58,6 +64,17 @@ async def delete_current_user(
     README), so deleting the User row is the only cleanup this needs —
     nothing else to delete explicitly.
     """
+    # Captured before the delete, not derived from it: once the Membership
+    # rows cascade-delete along with the User row, there's no way to ask
+    # Postgres afterward which groups this person was in — the whole point
+    # of publishing this is telling those exact groups' already-open
+    # sessions to refetch their member list, same as member_joined does
+    # for the opposite direction (see groups.py's join_group).
+    result = await db.execute(
+        select(Membership.group_id).where(Membership.user_id == current_user.id)
+    )
+    group_ids = [row[0] for row in result.all()]
+
     try:
         await firebase_auth_admin_service.delete_firebase_user(current_user.firebase_uid)
     except Exception as exc:
@@ -70,7 +87,12 @@ async def delete_current_user(
     user_id = current_user.id
     await db.delete(current_user)
     await db.commit()
-    logger.info("user.deleted", user_id=str(user_id))
+
+    for group_id in group_ids:
+        payload = {"event": "member_left", "group_id": str(group_id), "user_id": str(user_id)}
+        await redis.publish(group_channel(group_id), json.dumps(payload))
+
+    logger.info("user.deleted", user_id=str(user_id), group_count=len(group_ids))
 
 
 @router.get("/{user_id}", response_model=UserRead)

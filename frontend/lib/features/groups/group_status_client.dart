@@ -34,7 +34,7 @@ class GroupStatusClient {
   final _statusesController = StreamController<Map<String, MemberStatus>>.broadcast();
   final _nudgesController = StreamController<AppNudge>.broadcast();
   final _reservationsController = StreamController<AppReservation>.broadcast();
-  final _memberJoinedController = StreamController<void>.broadcast();
+  final _memberListChangedController = StreamController<void>.broadcast();
 
   /// Emits the full current `{userId: MemberStatus}` map on every change
   /// (including the initial snapshot).
@@ -50,11 +50,12 @@ class GroupStatusClient {
   /// latest-value-per-key shape [statuses] does.
   Stream<AppReservation> get reservations => _reservationsController.stream;
 
-  /// Fires once per member who joins the group, in real time — no payload,
-  /// just a signal to refetch the member list (same "refetch on event"
-  /// approach as [reservations], for the same reason: membership doesn't
-  /// have a natural latest-value-per-key shape either).
-  Stream<void> get memberJoined => _memberJoinedController.stream;
+  /// Fires once per membership change — someone joining or, via account
+  /// deletion, leaving — in real time. No payload, just a signal to
+  /// refetch the member list (same "refetch on event" approach as
+  /// [reservations], for the same reason: membership doesn't have a
+  /// natural latest-value-per-key shape either).
+  Stream<void> get memberListChanged => _memberListChangedController.stream;
 
   Future<void> connect() async {
     if (_disposed) return;
@@ -107,8 +108,9 @@ class GroupStatusClient {
           _reservationsController.add(AppReservation.fromJson(data));
         }
       case 'member_joined':
-        if (!_memberJoinedController.isClosed) {
-          _memberJoinedController.add(null);
+      case 'member_left':
+        if (!_memberListChangedController.isClosed) {
+          _memberListChangedController.add(null);
         }
     }
   }
@@ -127,6 +129,6 @@ class GroupStatusClient {
     _statusesController.close();
     _nudgesController.close();
     _reservationsController.close();
-    _memberJoinedController.close();
+    _memberListChangedController.close();
   }
 }
