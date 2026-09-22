@@ -36,11 +36,15 @@ class _GroupsHomePageState extends ConsumerState<GroupsHomePage> {
     final groups = ref.watch(myGroupsProvider);
 
     // Token-refresh + notification-tap wiring runs for the app's whole
-    // lifetime once signed in; the permission *prompt* itself only fires
-    // once ever, gated on the platform's own permission record (not an
-    // in-app flag, which would reset on every fresh sign-in/app launch —
-    // that was the earlier bug: it kept re-asking every session instead
-    // of respecting a decision the user already made).
+    // lifetime once signed in. The permission *prompt* is gated on the
+    // platform's own permission record, not an in-app flag: it keeps
+    // reappearing once per session for as long as the OS status is
+    // notDetermined (never actually granted or denied — includes tapping
+    // this sheet's own "Not now", which never calls requestPermission at
+    // all), stops for good once actually granted, and turns into a
+    // settings pointer instead of a re-ask once actually denied at the
+    // real OS dialog (the OS won't show its own prompt again past that
+    // point regardless of what this app does).
     ref.read(pushClientProvider).start();
     if (!_promptedThisSession && me.hasValue) {
       _promptedThisSession = true;
