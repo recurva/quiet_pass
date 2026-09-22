@@ -18,12 +18,15 @@ import 'otp_entry_page.dart';
 /// building before it's needed.
 const _countryCode = '+91';
 
-/// Number-only entry, for a phone that (presumably) already has an
-/// account. Whether it actually does is a backend decision either way
-/// (see OtpFlowController.sendCode / POST /auth/sign-in) — this screen
-/// never sends a name, so an existing user's name can never be touched
-/// by using it, and a genuinely new number that lands here just gets
-/// prompted for a name once on the home screen instead of up front.
+/// Number-only entry, for a phone that already has an account — checked
+/// up front via GET /auth/phone-exists (see _PhoneAuthPageState._submit),
+/// which rejects a number with no account before an OTP is even sent
+/// ("No account found. Please sign up."). This screen never sends a
+/// name, so an existing user's name can never be touched by using it. A
+/// number that slips past that check regardless (a race with someone
+/// signing up elsewhere in the same instant) still can't create a
+/// nameless dead end: GroupsHomePage's one-time safety net prompts for a
+/// name in that case — see its _maybePromptForName.
 class SignInPage extends StatelessWidget {
   const SignInPage({super.key});
 
@@ -254,29 +257,38 @@ class _PhoneAuthPageState extends ConsumerState<_PhoneAuthPage> {
 
     final phoneNumber = '$_countryCode$nationalNumber';
 
-    // Sign Up specifically: reject an already-registered number here,
-    // before an OTP is even sent, rather than silently signing the
-    // person in only after they've gone through verification — that's
-    // what used to happen, and the user-facing ask was for this to be a
-    // visible error at this exact step instead. Fails open on a network
-    // error: OTP still gets sent, and POST /auth/sign-in's own is_new
-    // check is the real backstop either way.
-    if (widget.isSignUp) {
-      setState(() => _checkingPhone = true);
-      try {
-        final exists = await ref.read(groupsRepositoryProvider).checkPhoneExists(phoneNumber);
-        if (exists) {
-          setState(() {
-            _checkingPhone = false;
-            _validationError = 'You already have an account. Sign in instead.';
-          });
-          return;
-        }
-      } on ApiException {
-        // Fall through and let OTP + POST /auth/sign-in handle it.
-      } finally {
-        if (mounted) setState(() => _checkingPhone = false);
+    // Reject the mismatched case up front, before an OTP is even sent,
+    // rather than letting OTP verification silently paper over it: Sign
+    // Up with a number that already has an account used to auto-sign the
+    // person in, and Sign In with a number that has none used to
+    // silently create one — both were surprising, and the user-facing
+    // ask for both was a visible error at this exact step instead. Fails
+    // open on a network error: OTP still gets sent, and POST
+    // /auth/sign-in's own is_new logic is the real backstop either way —
+    // see its docstring for why a genuinely new number that slips
+    // through here still ends up handled correctly, just without this
+    // up-front message.
+    setState(() => _checkingPhone = true);
+    try {
+      final exists = await ref.read(groupsRepositoryProvider).checkPhoneExists(phoneNumber);
+      if (widget.isSignUp && exists) {
+        setState(() {
+          _checkingPhone = false;
+          _validationError = 'You already have an account. Sign in instead.';
+        });
+        return;
       }
+      if (!widget.isSignUp && !exists) {
+        setState(() {
+          _checkingPhone = false;
+          _validationError = 'No account found. Please sign up.';
+        });
+        return;
+      }
+    } on ApiException {
+      // Fall through and let OTP + POST /auth/sign-in handle it.
+    } finally {
+      if (mounted) setState(() => _checkingPhone = false);
     }
 
     ref.read(otpFlowControllerProvider.notifier).sendCode(phoneNumber, displayName: name);
