@@ -85,7 +85,15 @@ class OtpFlowController extends StateNotifier<OtpFlowState> {
       timeout: const Duration(seconds: 60),
       verificationCompleted: (credential) async {
         // Android instant/auto-retrieval verification; sign in right away.
-        await _signInAndStoreToken(credential);
+        try {
+          await _signInAndStoreToken(credential);
+          state = const OtpFlowIdle();
+        } catch (_) {
+          // See confirmCode's matching catch: signInWithCredential can
+          // throw even after natively succeeding, and authStateChangesProvider
+          // has already fired by this point regardless.
+          state = const OtpFlowError('Something went wrong, but you may already be signed in.');
+        }
       },
       verificationFailed: (FirebaseAuthException e) {
         state = OtpFlowError(e.message ?? 'Could not send the code. Try again.');
@@ -115,8 +123,18 @@ class OtpFlowController extends StateNotifier<OtpFlowState> {
         smsCode: smsCode,
       );
       await _signInAndStoreToken(credential);
+      state = const OtpFlowIdle();
     } on FirebaseAuthException catch (e) {
       state = OtpFlowError(e.message ?? 'That code did not match. Try again.');
+    } catch (_) {
+      // Anything else — notably firebase_auth's own known type-cast bug,
+      // which can throw here even though the native sign-in underneath
+      // already succeeded (see _signInAndStoreToken's doc comment). Show
+      // *something* rather than leaving the Verify button silently
+      // spinning forever: authStateChangesProvider has already fired by
+      // this point regardless, so AuthGate is on its way to the signed-in
+      // app whether or not this line runs.
+      state = const OtpFlowError('Something went wrong, but you may already be signed in.');
     }
   }
 
@@ -124,52 +142,57 @@ class OtpFlowController extends StateNotifier<OtpFlowState> {
     // Closes the window between Firebase confirming the credential (which
     // fires authStateChangesProvider immediately) and our own
     // POST /auth/sign-in finishing — see backendSignInSettledProvider's
-    // doc comment for exactly what race this prevents.
+    // doc comment for exactly what race this prevents. Wraps the *whole*
+    // function body, not just the backend call below: signInWithCredential
+    // itself can throw (see the catch in confirmCode) after the native
+    // sign-in has already gone through, and this must still flip back to
+    // true when that happens — otherwise AuthGate is stuck on the splash
+    // screen forever, signed in but unable to show it, until the app is
+    // fully restarted and re-reads Firebase's already-persisted session.
     _ref.read(backendSignInSettledProvider.notifier).state = false;
-
-    final result = await _auth.signInWithCredential(credential);
-    final idToken = await result.user?.getIdToken();
-    if (idToken != null) {
-      await _tokenStore.save(idToken);
-    }
-
-    // One call, for both Sign In and Sign Up: the backend is the one
-    // place that actually knows whether this phone number is new or
-    // returning (see POST /auth/sign-in and authenticate_token's
-    // docstring) — never trust "which screen was used" for that, since
-    // Firebase ties the account to the number regardless.
-    final enteredName = _pendingDisplayName;
-    _pendingDisplayName = null;
     try {
-      final (_, isNew) = await _repository.signIn(displayName: enteredName);
-
-      if (!isNew && enteredName != null) {
-        // Came through Sign Up, but the number already had an account —
-        // their real name was never touched server-side; just let them
-        // know why they're not looking at a blank Sign Up form anymore.
-        _ref.read(authNoticeProvider.notifier).state =
-            'You already have an account, signing you in.';
+      final result = await _auth.signInWithCredential(credential);
+      final idToken = await result.user?.getIdToken();
+      if (idToken != null) {
+        await _tokenStore.save(idToken);
       }
 
-      // currentBackendUserProvider isn't autoDispose — it fetches once
-      // and caches forever until told otherwise. GroupsHomePage can mount
-      // and run its own GET /users/me the instant signInWithCredential
-      // (above) fires authStateChangesProvider, likely *before* this
-      // sign-in call has even finished — caching a stale value.
-      // Invalidating here, after the call is known to have completed,
-      // forces a fresh fetch regardless of which one actually won that
-      // race.
-      _ref.invalidate(currentBackendUserProvider);
-    } catch (_) {
-      // Never block sign-in on this — worst case the name falls back to
-      // the phone number (new user) or is simply whatever it already was
-      // (returning user), and the profile screen is always there to fix
-      // it afterward.
+      // One call, for both Sign In and Sign Up: the backend is the one
+      // place that actually knows whether this phone number is new or
+      // returning (see POST /auth/sign-in and authenticate_token's
+      // docstring) — never trust "which screen was used" for that, since
+      // Firebase ties the account to the number regardless.
+      final enteredName = _pendingDisplayName;
+      _pendingDisplayName = null;
+      try {
+        final (_, isNew) = await _repository.signIn(displayName: enteredName);
+
+        if (!isNew && enteredName != null) {
+          // Came through Sign Up, but the number already had an account —
+          // their real name was never touched server-side; just let them
+          // know why they're not looking at a blank Sign Up form anymore.
+          _ref.read(authNoticeProvider.notifier).state =
+              'You already have an account, signing you in.';
+        }
+
+        // currentBackendUserProvider isn't autoDispose — it fetches once
+        // and caches forever until told otherwise. GroupsHomePage can
+        // mount and run its own GET /users/me the instant
+        // signInWithCredential (above) fires authStateChangesProvider,
+        // likely *before* this sign-in call has even finished — caching a
+        // stale value. Invalidating here, after the call is known to have
+        // completed, forces a fresh fetch regardless of which one
+        // actually won that race.
+        _ref.invalidate(currentBackendUserProvider);
+      } catch (_) {
+        // Never block sign-in on this — worst case the name falls back to
+        // the phone number (new user) or is simply whatever it already
+        // was (returning user), and the profile screen is always there to
+        // fix it afterward.
+      }
     } finally {
       _ref.read(backendSignInSettledProvider.notifier).state = true;
     }
-
-    state = const OtpFlowIdle();
   }
 
   void reset() => state = const OtpFlowIdle();
