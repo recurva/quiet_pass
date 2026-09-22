@@ -3,8 +3,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
+import '../../core/api_client.dart';
 import '../../theme/dimens.dart';
 import '../../theme/theme_x.dart';
+import '../groups/groups_providers.dart';
 import 'auth_controller.dart';
 import 'auth_state.dart';
 import 'otp_entry_page.dart';
@@ -54,6 +56,7 @@ class _PhoneAuthPageState extends ConsumerState<_PhoneAuthPage> {
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   bool _navigatedForCurrentCodeSent = false;
+  bool _checkingPhone = false;
   String? _validationError;
 
   @override
@@ -67,7 +70,7 @@ class _PhoneAuthPageState extends ConsumerState<_PhoneAuthPage> {
   Widget build(BuildContext context) {
     final c = context.colors;
     final flowState = ref.watch(otpFlowControllerProvider);
-    final isSending = flowState is OtpFlowSendingCode;
+    final isSending = flowState is OtpFlowSendingCode || _checkingPhone;
 
     ref.listen<OtpFlowState>(otpFlowControllerProvider, (previous, next) {
       if (next is OtpFlowCodeSent && !_navigatedForCurrentCodeSent) {
@@ -235,7 +238,7 @@ class _PhoneAuthPageState extends ConsumerState<_PhoneAuthPage> {
     );
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     final name = widget.isSignUp ? _nameController.text.trim() : null;
     final nationalNumber = _phoneController.text.trim();
 
@@ -249,9 +252,33 @@ class _PhoneAuthPageState extends ConsumerState<_PhoneAuthPage> {
     }
     setState(() => _validationError = null);
 
-    ref.read(otpFlowControllerProvider.notifier).sendCode(
-          '$_countryCode$nationalNumber',
-          displayName: name,
-        );
+    final phoneNumber = '$_countryCode$nationalNumber';
+
+    // Sign Up specifically: reject an already-registered number here,
+    // before an OTP is even sent, rather than silently signing the
+    // person in only after they've gone through verification — that's
+    // what used to happen, and the user-facing ask was for this to be a
+    // visible error at this exact step instead. Fails open on a network
+    // error: OTP still gets sent, and POST /auth/sign-in's own is_new
+    // check is the real backstop either way.
+    if (widget.isSignUp) {
+      setState(() => _checkingPhone = true);
+      try {
+        final exists = await ref.read(groupsRepositoryProvider).checkPhoneExists(phoneNumber);
+        if (exists) {
+          setState(() {
+            _checkingPhone = false;
+            _validationError = 'You already have an account. Sign in instead.';
+          });
+          return;
+        }
+      } on ApiException {
+        // Fall through and let OTP + POST /auth/sign-in handle it.
+      } finally {
+        if (mounted) setState(() => _checkingPhone = false);
+      }
+    }
+
+    ref.read(otpFlowControllerProvider.notifier).sendCode(phoneNumber, displayName: name);
   }
 }

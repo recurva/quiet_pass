@@ -19,3 +19,7 @@ class SignInResponse(BaseModel):
     # already have an account" (existing user, but the caller came from
     # the Sign Up screen and did supply one).
     is_new: bool
+
+
+class PhoneExistsResponse(BaseModel):
+    exists: bool

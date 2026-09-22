@@ -1,16 +1,35 @@
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import authenticate_token, get_db
 from app.core.firebase import TokenExpiredError, TokenInvalidError
 from app.core.logging import get_logger
-from app.schemas.auth import SignInRequest, SignInResponse
+from app.models.user import User
+from app.schemas.auth import PhoneExistsResponse, SignInRequest, SignInResponse
 from app.schemas.user import UserRead
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 _UNAUTHORIZED_HEADERS = {"WWW-Authenticate": "Bearer"}
+
+
+@router.get("/phone-exists", response_model=PhoneExistsResponse)
+async def phone_exists(
+    phone_number: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+) -> PhoneExistsResponse:
+    """Lets the Sign Up screen reject an already-registered number at
+    "Send code" time, before spending an OTP on it, rather than silently
+    signing the person in after they've gone through verification — see
+    SignUpPage's _submit. Unauthenticated by design: it runs before any
+    token exists yet. It's a pre-flight nicety only — a number that
+    changes hands between this check and OTP completion is still handled
+    correctly by POST /auth/sign-in's own is_new logic either way.
+    """
+    result = await db.execute(select(User.id).where(User.phone_number == phone_number))
+    return PhoneExistsResponse(exists=result.scalar_one_or_none() is not None)
 
 
 @router.post("/sign-in", response_model=SignInResponse)

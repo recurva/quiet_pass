@@ -38,6 +38,17 @@ class GroupsRepository {
     );
   }
 
+  /// GET /auth/phone-exists: lets the Sign Up screen reject an
+  /// already-registered number up front, before spending an OTP on it,
+  /// instead of only finding out afterward — see SignUpPage's _submit.
+  /// Unauthenticated (no Firebase user exists yet at this point).
+  Future<bool> checkPhoneExists(String phoneNumber) async {
+    final json = await _client.getUnauthenticated(
+      '/auth/phone-exists?phone_number=${Uri.encodeQueryComponent(phoneNumber)}',
+    );
+    return (json as Map<String, dynamic>)['exists'] as bool;
+  }
+
   Future<List<AppGroup>> fetchMyGroups() async {
     final json = await _client.get('/groups/mine');
     return (json as List<dynamic>)

@@ -76,6 +76,19 @@ class ApiClient {
     });
   }
 
+  /// For the handful of endpoints that must be reachable before there's a
+  /// signed-in Firebase user to authorize with — currently just
+  /// GET /auth/phone-exists, called from the Sign Up screen before OTP
+  /// verification has even started. [get] can't be reused here: it always
+  /// calls [_authHeaders], which throws for exactly this case (no current
+  /// user yet).
+  Future<dynamic> getUnauthenticated(String path) {
+    return _guarded(() async {
+      final response = await _http.get(_uri(path));
+      return _decode(response);
+    });
+  }
+
   Future<dynamic> post(String path, {Object? body}) {
     return _guarded(() async {
       final response = await _http.post(
