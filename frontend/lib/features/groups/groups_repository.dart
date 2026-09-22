@@ -73,11 +73,19 @@ class GroupsRepository {
     );
   }
 
-  /// PATCH /users/me: the only self-editable field today. Used both from
-  /// the onboarding name prompt and the profile screen.
+  /// PATCH /users/me: the only self-editable field today. Called at
+  /// signup (see OtpFlowController) and from the profile screen's edit.
   Future<AppUser> updateDisplayName(String displayName) async {
     final json = await _client.patch('/users/me', body: {'display_name': displayName});
     return AppUser.fromJson(json as Map<String, dynamic>);
+  }
+
+  /// DELETE /users/me: deletes the account from both Firebase Auth and
+  /// Postgres server-side (see the backend's delete_current_user). The
+  /// caller is still responsible for signing out of Firebase locally
+  /// afterward — this only handles the two server-side deletions.
+  Future<void> deleteAccount() async {
+    await _client.delete('/users/me');
   }
 
   /// Sends a nudge. [durationMinutes] is required for [NudgeType.quietPulse]

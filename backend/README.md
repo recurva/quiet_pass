@@ -245,6 +245,43 @@ WebSocket-driven in-app banner instead. A more precise version would
 exclude currently-connected members from the push entirely; not worth the
 complexity yet.
 
+## Account deletion (Firebase Auth + Postgres)
+
+`DELETE /api/v1/users/me` removes the caller entirely: from Firebase
+Authentication first, then the Postgres `users` row (whose `ON DELETE
+CASCADE` on `memberships`, `reservations`, `chores`, and `device_tokens`
+handles every child row — see the data model above). Firebase goes first
+deliberately: it's the external, less-reliable side, so if it fails the
+Postgres row is left untouched rather than risking the two ending up out
+of sync.
+
+**Needs its own credential, separate from push's.** Deleting a Firebase
+Auth user requires the `identitytoolkit` scope, which push's FCM-scoped
+credential (`app/services/push_service.py`) can't be reused for — a
+single named `firebase_admin` app can't hold two scopes. See
+`app/services/firebase_auth_admin_service.py`, which follows the exact
+same credential-resolution pattern as push (impersonation for local dev,
+runtime service account in production) but as its own separately-scoped
+app. Gated on `FIREBASE_ADMIN_USE_RUNTIME_SERVICE_ACCOUNT` (production)
+or `FCM_IMPERSONATE_SERVICE_ACCOUNT` (local dev, reusing the same target
+principal as push's impersonation — just a different requested scope).
+
+**The runtime service account needs an additional IAM grant** beyond the
+`roles/firebasecloudmessaging.admin` already covering push:
+
+```bash
+gcloud projects add-iam-policy-binding quietpass-app \
+  --member="serviceAccount:quietpass-runtime@quietpass-app.iam.gserviceaccount.com" \
+  --role="roles/firebaseauth.admin"
+```
+
+If neither credential path is configured, `delete_firebase_user` returns
+`False` rather than raising — the Postgres deletion still proceeds (the
+account becomes unusable locally either way), just without the matching
+Firebase Auth cleanup. Only a genuine failure (credentials configured but
+the call itself errors) stops the Postgres deletion, logged as
+`user.delete.firebase_failed`.
+
 ## Reservations (base layer)
 
 Booking a space, without the recurring-bookings or emergency-override
@@ -336,10 +373,21 @@ missing it is exactly how this regressed once already.
 Every endpoint except `/health` and `/docs` requires
 `Authorization: Bearer <firebase-id-token>`. `get_current_user`
 (`app/api/deps.py`) verifies the token, then resolves the matching `User` by
-`firebase_uid` — provisioning one on first sight if none exists. There's no
-separate "create user" endpoint; signing in via Firebase phone auth and
-calling any protected route (`GET /users/me` is the obvious one) is what
-creates the row.
+`firebase_uid` — provisioning one on first sight if none exists, with
+`display_name` defaulted to the phone number. There's no separate "create
+user" endpoint; signing in via Firebase phone auth and calling any
+protected route is what creates the row.
+
+**The Flutter signup flow captures a real name immediately anyway** —
+`PhoneEntryPage` collects name and phone together, and the moment sign-in
+succeeds (`OtpFlowController._signInAndStoreToken`), the client calls
+`PATCH /users/me` with the captured name before doing anything else. The
+phone-number-as-default-name state above is real but momentary: it's
+created and immediately overwritten within that same first authenticated
+round-trip, never visibly shown anywhere in the app. There's no dedicated
+backend endpoint for "create with a name" — this is two existing
+endpoints (auto-provision-on-first-touch, then `PATCH`) called back to
+back by the client, not new backend surface.
 
 Token verification (`app/core/firebase.py`) doesn't use the Firebase Admin
 SDK — this project's org policy blocks issuing a service-account key for it.

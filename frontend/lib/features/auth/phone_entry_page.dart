@@ -27,12 +27,15 @@ class PhoneEntryPage extends ConsumerStatefulWidget {
 }
 
 class _PhoneEntryPageState extends ConsumerState<PhoneEntryPage> {
-  final _controller = TextEditingController();
+  final _nameController = TextEditingController();
+  final _phoneController = TextEditingController();
   bool _navigatedForCurrentCodeSent = false;
+  String? _validationError;
 
   @override
   void dispose() {
-    _controller.dispose();
+    _nameController.dispose();
+    _phoneController.dispose();
     super.dispose();
   }
 
@@ -66,10 +69,38 @@ class _PhoneEntryPageState extends ConsumerState<PhoneEntryPage> {
               Text('QuietPass', style: context.text.titleLarge),
               SizedBox(height: Space.xs.h),
               Text(
-                'Enter your phone number to sign in.',
+                'Tell us your name and phone number to sign in.',
                 style: context.text.bodySmall,
               ),
               SizedBox(height: Space.xl.h),
+              TextField(
+                controller: _nameController,
+                textCapitalization: TextCapitalization.words,
+                style: context.text.bodyLarge?.copyWith(color: c.ink),
+                decoration: InputDecoration(
+                  hintText: 'Your name',
+                  hintStyle: context.text.bodyLarge?.copyWith(color: c.ink3),
+                  filled: true,
+                  fillColor: c.surface2,
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: Space.md.w,
+                    vertical: Space.md.h,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(Radii.md.r),
+                    borderSide: BorderSide(color: c.line2),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(Radii.md.r),
+                    borderSide: BorderSide(color: c.line2),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(Radii.md.r),
+                    borderSide: BorderSide(color: c.accent),
+                  ),
+                ),
+              ),
+              SizedBox(height: Space.md.h),
               Container(
                 decoration: BoxDecoration(
                   color: c.surface2,
@@ -94,7 +125,7 @@ class _PhoneEntryPageState extends ConsumerState<PhoneEntryPage> {
                     ),
                     Expanded(
                       child: TextField(
-                        controller: _controller,
+                        controller: _phoneController,
                         keyboardType: TextInputType.phone,
                         inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                         style: context.text.bodyLarge?.copyWith(color: c.ink),
@@ -125,10 +156,10 @@ class _PhoneEntryPageState extends ConsumerState<PhoneEntryPage> {
                   ],
                 ),
               ),
-              if (flowState is OtpFlowError) ...[
+              if (_validationError != null || flowState is OtpFlowError) ...[
                 SizedBox(height: Space.sm.h),
                 Text(
-                  flowState.message,
+                  _validationError ?? (flowState as OtpFlowError).message,
                   style: context.text.bodySmall?.copyWith(color: c.call.solid),
                 ),
               ],
@@ -157,8 +188,18 @@ class _PhoneEntryPageState extends ConsumerState<PhoneEntryPage> {
   }
 
   void _submit() {
-    final nationalNumber = _controller.text.trim();
-    if (nationalNumber.isEmpty) return;
-    ref.read(otpFlowControllerProvider.notifier).sendCode('$_countryCode$nationalNumber');
+    final name = _nameController.text.trim();
+    final nationalNumber = _phoneController.text.trim();
+
+    if (name.isEmpty || nationalNumber.isEmpty) {
+      setState(() => _validationError = 'Enter your name and phone number to continue.');
+      return;
+    }
+    setState(() => _validationError = null);
+
+    ref.read(otpFlowControllerProvider.notifier).sendCode(
+          '$_countryCode$nationalNumber',
+          displayName: name,
+        );
   }
 }

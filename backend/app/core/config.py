@@ -53,6 +53,13 @@ class Settings(BaseSettings):
     # silently takes this path and fails in a confusing way.
     fcm_use_runtime_service_account: bool = False
 
+    # Same runtime-service-account idea as above, but for deleting a
+    # Firebase Auth user (DELETE /users/me) — a separate capability with a
+    # separate required scope (identitytoolkit, not firebase.messaging),
+    # so it's its own explicit flag rather than reusing the FCM one; see
+    # app/services/firebase_auth_admin_service.py.
+    firebase_admin_use_runtime_service_account: bool = False
+
     # Reservations: booking rules for the base layer (no recurring bookings
     # or emergency override yet).
     reservation_buffer_minutes: int = 15  # gap required between bookings on the same space

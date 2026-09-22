@@ -6,6 +6,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../../core/api_client.dart';
 import '../../theme/dimens.dart';
 import '../../theme/theme_x.dart';
+import '../profile/profile_page.dart';
 import '../push/push_permission_sheet.dart';
 import '../push/push_providers.dart';
 import 'create_house_sheet.dart';
@@ -13,11 +14,14 @@ import 'group_detail_page.dart';
 import 'group_models.dart';
 import 'groups_providers.dart';
 import 'join_house_sheet.dart';
-import 'name_sheet.dart';
 
 /// Lands here right after sign-in: fetches (and provisions, on first call)
 /// the backend User, then either lists the caller's houses or prompts them
 /// to create or join one.
+///
+/// The display name is always captured at signup (PhoneEntryPage) now —
+/// there is no name-onboarding step here anymore. The only remaining
+/// per-session prompt is push permission.
 class GroupsHomePage extends ConsumerStatefulWidget {
   const GroupsHomePage({super.key});
 
@@ -43,7 +47,7 @@ class _GroupsHomePageState extends ConsumerState<GroupsHomePage> {
     ref.read(pushClientProvider).start();
     if (!_promptedThisSession && me.hasValue) {
       _promptedThisSession = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) => _runOnboardingPrompts(me.value!));
+      WidgetsBinding.instance.addPostFrameCallback((_) => _maybePromptForPush());
     }
 
     return Scaffold(
@@ -69,14 +73,16 @@ class _GroupsHomePageState extends ConsumerState<GroupsHomePage> {
                       child: Text('Hi, ${user.displayName}', style: context.text.titleLarge),
                     ),
                     IconButton(
-                      onPressed: () => _editName(user.displayName),
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const ProfilePage()),
+                      ),
                       style: IconButton.styleFrom(
                         backgroundColor: c.surface2,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(Radii.sm.r),
                         ),
                       ),
-                      icon: Icon(Icons.edit_outlined, color: c.ink2, size: 18.r),
+                      icon: Icon(Icons.settings_outlined, color: c.ink2, size: 18.r),
                     ),
                   ],
                 ),
@@ -126,30 +132,6 @@ class _GroupsHomePageState extends ConsumerState<GroupsHomePage> {
         ),
       ),
     );
-  }
-
-  Future<void> _runOnboardingPrompts(AppUser user) async {
-    // Name capture first (per the Time Limits spec's onboarding
-    // requirement), then push permission — sequential, not stacked, so the
-    // user only ever sees one sheet at a time.
-    await _maybePromptForName(user);
-    await _maybePromptForPush();
-  }
-
-  Future<void> _maybePromptForName(AppUser user) async {
-    if (!mounted) return;
-    // The backend defaults display_name to the phone number at first sight
-    // (see get_current_user's provisioning) — that equality is exactly how
-    // "never customized yet" is detected, with no separate "onboarded" flag
-    // needed anywhere.
-    if (user.displayName != user.phoneNumber) return;
-    await showEditNameSheet(context, initialValue: '', skippable: true);
-  }
-
-  Future<void> _editName(String currentName) async {
-    final me = ref.read(currentBackendUserProvider).valueOrNull;
-    final initial = me != null && me.displayName == me.phoneNumber ? '' : currentName;
-    await showEditNameSheet(context, initialValue: initial, skippable: true);
   }
 
   Future<void> _maybePromptForPush() async {

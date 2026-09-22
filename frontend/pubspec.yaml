@@ -34,6 +34,10 @@ dependencies:
   # Secure on-device storage for the Firebase ID token (sent as the backend Bearer header)
   flutter_secure_storage: ^9.2.2
 
+  # Plain (non-secret) local key-value storage — just the chosen theme mode,
+  # so flutter_secure_storage's encryption overhead isn't worth reaching for.
+  shared_preferences: ^2.3.3
+
   # Backend HTTP calls
   http: ^1.2.2
 
