@@ -23,6 +23,20 @@ final authStateChangesProvider = StreamProvider<User?>((ref) {
 /// same "show once" shape as `_promptedThisSession` elsewhere in this app.
 final authNoticeProvider = StateProvider<String?>((ref) => null);
 
+/// True whenever it's safe for [AuthGate] to show the signed-in app.
+/// Defaults to true so a cold start with an already-persisted Firebase
+/// session (the normal "close and reopen the app" case) goes straight to
+/// the home screen with no gating. Only flips to false for the brief
+/// window between Firebase confirming an OTP credential and our own
+/// POST /auth/sign-in finishing — see _signInAndStoreToken. Without this,
+/// Firebase's authStateChanges fires the instant the credential is
+/// confirmed, GroupsHomePage mounts immediately, and its own GET /users/me
+/// races POST /auth/sign-in — whichever one provisions the user first
+/// wins, and since /auth/sign-in always loses that race it arrives to find
+/// the user already exists and (correctly, for a *returning* user) never
+/// touches the name, silently discarding whatever name was just entered.
+final backendSignInSettledProvider = StateProvider<bool>((ref) => true);
+
 final otpFlowControllerProvider =
     StateNotifierProvider<OtpFlowController, OtpFlowState>((ref) {
   return OtpFlowController(
@@ -107,6 +121,12 @@ class OtpFlowController extends StateNotifier<OtpFlowState> {
   }
 
   Future<void> _signInAndStoreToken(PhoneAuthCredential credential) async {
+    // Closes the window between Firebase confirming the credential (which
+    // fires authStateChangesProvider immediately) and our own
+    // POST /auth/sign-in finishing — see backendSignInSettledProvider's
+    // doc comment for exactly what race this prevents.
+    _ref.read(backendSignInSettledProvider.notifier).state = false;
+
     final result = await _auth.signInWithCredential(credential);
     final idToken = await result.user?.getIdToken();
     if (idToken != null) {
@@ -145,6 +165,8 @@ class OtpFlowController extends StateNotifier<OtpFlowState> {
       // the phone number (new user) or is simply whatever it already was
       // (returning user), and the profile screen is always there to fix
       // it afterward.
+    } finally {
+      _ref.read(backendSignInSettledProvider.notifier).state = true;
     }
 
     state = const OtpFlowIdle();
