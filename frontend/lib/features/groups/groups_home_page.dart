@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../core/api_client.dart';
+import '../../theme/app_snackbar.dart';
 import '../../theme/dimens.dart';
 import '../../theme/theme_x.dart';
 import '../push/push_permission_sheet.dart';
@@ -162,12 +163,26 @@ class _GroupsHomePageState extends ConsumerState<GroupsHomePage> {
       return;
     }
 
-    // Already decided in an earlier session (granted, denied, whatever) —
-    // don't ask again. If it was granted, make sure this device's current
-    // token is registered, in case it rotated since the last time.
+    // Already decided in an earlier session — don't re-ask (the OS won't
+    // show its own dialog again either past this point). If it was
+    // granted, make sure this device's current token is registered, in
+    // case it rotated since the last time.
     if (status == AuthorizationStatus.authorized ||
         status == AuthorizationStatus.provisional) {
       await ref.read(pushClientProvider).registerCurrentToken();
+      return;
+    }
+
+    if (status == AuthorizationStatus.denied && mounted) {
+      // Can't show the OS prompt again once denied — Android and iOS both
+      // require going through system settings from here on. A snackbar
+      // rather than a sheet, since this is a one-line pointer, not a
+      // decision the user needs to make right now.
+      showAppSnackBar(
+        context,
+        'Notifications are off. Enable them in Settings → Apps → QuietPass → '
+        'Notifications to get nudges when the app is closed or locked.',
+      );
     }
   }
 }

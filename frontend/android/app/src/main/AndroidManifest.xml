@@ -1,8 +1,25 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required on Android 13+ (API 33) for the runtime notification
+         permission prompt to exist at all — without this, firebase_messaging's
+         requestPermission() has nothing to request, so it silently reports a
+         status without ever showing the system dialog, and push notifications
+         get dropped by the OS even though FCM itself delivers them
+         successfully (confirmed server-side: push.sent kept returning
+         success while nothing ever appeared on the locked device). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
     <application
         android:label="quietpass"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <!-- Tells the OS which channel to auto-display a notification-message
+             under when the app is genuinely backgrounded (the case
+             PushClient's onMessage listener doesn't cover, since that only
+             fires when Android treats the app as foreground) — must match
+             the channel id PushClient creates on startup. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="nudges" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
