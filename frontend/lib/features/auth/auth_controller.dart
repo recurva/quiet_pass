@@ -22,6 +22,7 @@ final otpFlowControllerProvider =
     auth: ref.watch(firebaseAuthProvider),
     tokenStore: ref.watch(authTokenStoreProvider),
     repository: ref.watch(groupsRepositoryProvider),
+    ref: ref,
   );
 });
 
@@ -33,14 +34,19 @@ class OtpFlowController extends StateNotifier<OtpFlowState> {
     required FirebaseAuth auth,
     required AuthTokenStore tokenStore,
     required GroupsRepository repository,
+    required Ref ref,
   })  : _auth = auth,
         _tokenStore = tokenStore,
         _repository = repository,
+        _ref = ref,
         super(const OtpFlowIdle());
 
   final FirebaseAuth _auth;
   final AuthTokenStore _tokenStore;
   final GroupsRepository _repository;
+  // Safe to hold onto: otpFlowControllerProvider isn't autoDispose, so this
+  // controller (and the ref that created it) live for the app's lifetime.
+  final Ref _ref;
 
   // Captured at signup (see PhoneEntryPage) and sent to the backend the
   // moment sign-in succeeds — the name is required at signup, never a
@@ -110,6 +116,17 @@ class OtpFlowController extends StateNotifier<OtpFlowState> {
     if (name != null && name.isNotEmpty) {
       try {
         await _repository.updateDisplayName(name);
+        // currentBackendUserProvider isn't autoDispose — it fetches once
+        // and caches forever until told otherwise. GroupsHomePage can
+        // mount and run its own GET /users/me the instant this method's
+        // first line (signInWithCredential) fires authStateChangesProvider
+        // — likely *before* this PATCH has even finished — caching the
+        // pre-rename value. Invalidating here, after the PATCH is known
+        // to have committed, forces a fresh fetch that picks up the real
+        // name regardless of that race; this is the exact bug that
+        // shipped without it: the PATCH succeeded server-side every time,
+        // the UI just never asked again.
+        _ref.invalidate(currentBackendUserProvider);
       } catch (_) {
         // Never block sign-in on this — worst case the name falls back
         // to the phone number and the user can fix it from the profile
