@@ -55,7 +55,7 @@ async def group_status_stream(
         return
 
     try:
-        user = await authenticate_token(db, token)
+        user, _ = await authenticate_token(db, token)
     except TokenExpiredError:
         logger.warning("ws.token_expired", group_id=str(group_id))
         await websocket.close(code=CLOSE_UNAUTHENTICATED)

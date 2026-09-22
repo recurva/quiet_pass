@@ -7,10 +7,11 @@ import '../../theme/dimens.dart';
 import '../../theme/theme_x.dart';
 import 'groups_providers.dart';
 
-/// Edits the caller's display name — reached from the profile screen. The
-/// name itself is now always captured at signup (PhoneEntryPage), so this
-/// is purely an edit surface, never a first-time-capture one; there's
-/// nothing to "skip," a plain back gesture is enough to back out.
+/// Two call sites: the profile screen's edit action (the common case —
+/// the name is normally already captured at signup, via SignUpPage), and
+/// GroupsHomePage's one-time safety net for the rare case where a
+/// genuinely new phone number arrived through SignInPage instead (number
+/// only, no name field) and so has none yet.
 Future<bool> showEditNameSheet(BuildContext context, {required String initialValue}) {
   return showModalBottomSheet<bool>(
         context: context,

@@ -18,11 +18,27 @@ logger = get_logger(__name__)
 _UNAUTHORIZED_HEADERS = {"WWW-Authenticate": "Bearer"}
 
 
-async def authenticate_token(db: AsyncSession, token: str) -> User:
+async def authenticate_token(
+    db: AsyncSession, token: str, display_name: str | None = None
+) -> tuple[User, bool]:
     """Verify a Firebase ID token and resolve (or, on first sight,
     provision) the matching User row. Shared by the HTTP Bearer-header path
     (`get_current_user`) and the WebSocket query-param path, since browsers
     can't set custom headers on a WebSocket handshake.
+
+    Returns `(user, is_new)` — `is_new` is True only when this call is what
+    provisioned the row (the initial lookup found nothing), never when an
+    existing user was resolved. This is the actual source of truth for
+    new-vs-returning (see `POST /auth/sign-in`), not which screen the
+    client happened to use — Firebase ties the account to the phone
+    number regardless of whether the person tapped "Sign in" or "Sign up".
+
+    `display_name` is used *only* on the provisioning path, and only if
+    the caller supplied one — an existing user's name is never touched
+    here under any circumstances, deliberately: this is what makes a
+    returning user's sign-in immune to a stray name being sent along with
+    it (e.g. someone who typed a name into the Sign Up screen for a
+    number that already has an account).
 
     Raises `TokenExpiredError` / `TokenInvalidError` on failure — callers
     decide how to turn that into a 401 or a close code.
@@ -39,14 +55,20 @@ async def authenticate_token(db: AsyncSession, token: str) -> User:
     user = result.scalar_one_or_none()
 
     if user is not None:
-        return user
+        return user, False
 
-    user = User(firebase_uid=firebase_uid, phone_number=phone_number, display_name=phone_number)
+    user = User(
+        firebase_uid=firebase_uid,
+        phone_number=phone_number,
+        display_name=display_name or phone_number,
+    )
     db.add(user)
     try:
         await db.commit()
     except IntegrityError:
-        # Lost a race with another request provisioning the same user.
+        # Lost a race with another request provisioning the same user —
+        # still "new" from this call's perspective (the row didn't exist
+        # when we looked), whichever request's insert actually won.
         await db.rollback()
         result = await db.execute(select(User).where(User.firebase_uid == firebase_uid))
         user = result.scalar_one()
@@ -54,7 +76,7 @@ async def authenticate_token(db: AsyncSession, token: str) -> User:
         await db.refresh(user)
         logger.info("auth.user_provisioned", user_id=str(user.id))
 
-    return user
+    return user, True
 
 
 async def get_current_user(
@@ -75,7 +97,8 @@ async def get_current_user(
     token = authorization.removeprefix("Bearer ").strip()
 
     try:
-        return await authenticate_token(db, token)
+        user, _ = await authenticate_token(db, token)
+        return user
     except TokenExpiredError as exc:
         logger.warning("auth.token_expired")
         raise HTTPException(

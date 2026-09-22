@@ -8,6 +8,8 @@ import 'phone_entry_page.dart';
 
 /// Root switch between the sign-in flow and the signed-in app, driven by
 /// FirebaseAuth's own user stream rather than local navigation state.
+/// Lands on [SignInPage] by default — [SignUpPage] is one tap away via
+/// its own "New here? Create an account" link.
 class AuthGate extends ConsumerWidget {
   const AuthGate({super.key});
 
@@ -16,9 +18,9 @@ class AuthGate extends ConsumerWidget {
     final authState = ref.watch(authStateChangesProvider);
 
     return authState.when(
-      data: (user) => user == null ? const PhoneEntryPage() : const GroupsHomePage(),
+      data: (user) => user == null ? const SignInPage() : const GroupsHomePage(),
       loading: () => const _SplashScaffold(),
-      error: (_, __) => const PhoneEntryPage(),
+      error: (_, __) => const SignInPage(),
     );
   }
 }

@@ -389,16 +389,33 @@ Every endpoint except `/health` and `/docs` requires
 user" endpoint; signing in via Firebase phone auth and calling any
 protected route is what creates the row.
 
-**The Flutter signup flow captures a real name immediately anyway** —
-`PhoneEntryPage` collects name and phone together, and the moment sign-in
-succeeds (`OtpFlowController._signInAndStoreToken`), the client calls
-`PATCH /users/me` with the captured name before doing anything else. The
-phone-number-as-default-name state above is real but momentary: it's
-created and immediately overwritten within that same first authenticated
-round-trip, never visibly shown anywhere in the app. There's no dedicated
-backend endpoint for "create with a name" — this is two existing
-endpoints (auto-provision-on-first-touch, then `PATCH`) called back to
-back by the client, not new backend surface.
+**New-vs-returning is a backend decision, not a client one.** Flutter has
+two entry screens — `SignInPage` (number only) and `SignUpPage` (name and
+number) — but Firebase phone auth ties the account to the number
+regardless of which one was used, so the client can't actually know
+whether a given number is new. `POST /api/v1/auth/sign-in`
+(`app/api/routers/auth.py`) is the one call made right after OTP
+verification succeeds, from *either* screen: it wraps `authenticate_token`
+(now returning `(user, is_new)` instead of just `user`) and responds with
+both. `is_new` is true only when this exact call is what provisioned the
+row — never when an existing user was resolved.
+
+**An existing user's `display_name` is never touched by sign-in, under
+any circumstances** — not by `get_current_user`'s auto-provisioning, and
+not by `/auth/sign-in` even when the caller supplies one. This is what
+makes a returning user's sign-in immune to a stray name arriving with it
+(the concrete case: someone opens `SignUpPage` — maybe out of habit, or
+not realizing they already have an account — for a number that's already
+registered; the entered name is silently ignored, their real name comes
+back unchanged, and the client shows a brief "you already have an
+account" notice rather than an error or a duplicate). The name is only
+ever used on the provisioning path, the same "first sight" moment
+`get_current_user` has always had.
+
+`GET /users/me` and `PATCH /users/me` are unchanged and still exist for
+their own purposes (fetch the current profile; edit the name later from
+the profile screen) — `/auth/sign-in` is additive, specifically for the
+post-OTP moment, not a replacement for either.
 
 Token verification (`app/core/firebase.py`) doesn't use the Firebase Admin
 SDK — this project's org policy blocks issuing a service-account key for it.

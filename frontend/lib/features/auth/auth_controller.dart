@@ -16,6 +16,13 @@ final authStateChangesProvider = StreamProvider<User?>((ref) {
   return ref.watch(firebaseAuthProvider).authStateChanges();
 });
 
+/// A one-shot message for the home screen to show right after landing —
+/// currently just "You already have an account, signing you in." for
+/// someone who went through Sign Up with a number that turned out to
+/// already be registered. Read-and-cleared by whoever displays it, the
+/// same "show once" shape as `_promptedThisSession` elsewhere in this app.
+final authNoticeProvider = StateProvider<String?>((ref) => null);
+
 final otpFlowControllerProvider =
     StateNotifierProvider<OtpFlowController, OtpFlowState>((ref) {
   return OtpFlowController(
@@ -48,14 +55,15 @@ class OtpFlowController extends StateNotifier<OtpFlowState> {
   // controller (and the ref that created it) live for the app's lifetime.
   final Ref _ref;
 
-  // Captured at signup (see PhoneEntryPage) and sent to the backend the
-  // moment sign-in succeeds — the name is required at signup, never a
-  // separate later step, so there's no persistent "onboarding" flag
-  // anywhere: this is just carried across the two Firebase calls
-  // (send code, then confirm) that make up one signup attempt.
+  // Captured on the Sign Up screen only (the Sign In screen never sets
+  // this — see SignInPage/SignUpPage) and sent along with the post-OTP
+  // sign-in call. Whether it actually gets *used* is entirely a backend
+  // decision (see authenticate_token): a genuinely new number gets
+  // created with this name; an already-registered number ignores it and
+  // keeps whatever name it already had.
   String? _pendingDisplayName;
 
-  Future<void> sendCode(String phoneNumber, {required String displayName}) async {
+  Future<void> sendCode(String phoneNumber, {String? displayName}) async {
     _pendingDisplayName = displayName;
     state = const OtpFlowSendingCode();
     await _auth.verifyPhoneNumber(
@@ -105,34 +113,38 @@ class OtpFlowController extends StateNotifier<OtpFlowState> {
       await _tokenStore.save(idToken);
     }
 
-    // The very first authenticated call for a brand-new phone number
-    // provisions the backend User row (see get_current_user), defaulted
-    // to the phone number as its name — this PATCH overwrites that with
-    // the real captured name before anything else in the app ever runs,
-    // so there's no window where a "no name set" state is visibly used.
-    // A returning user signing in again just re-sends their existing
-    // name; harmless, same value either way.
-    final name = _pendingDisplayName;
-    if (name != null && name.isNotEmpty) {
-      try {
-        await _repository.updateDisplayName(name);
-        // currentBackendUserProvider isn't autoDispose — it fetches once
-        // and caches forever until told otherwise. GroupsHomePage can
-        // mount and run its own GET /users/me the instant this method's
-        // first line (signInWithCredential) fires authStateChangesProvider
-        // — likely *before* this PATCH has even finished — caching the
-        // pre-rename value. Invalidating here, after the PATCH is known
-        // to have committed, forces a fresh fetch that picks up the real
-        // name regardless of that race; this is the exact bug that
-        // shipped without it: the PATCH succeeded server-side every time,
-        // the UI just never asked again.
-        _ref.invalidate(currentBackendUserProvider);
-      } catch (_) {
-        // Never block sign-in on this — worst case the name falls back
-        // to the phone number and the user can fix it from the profile
-        // screen, the same recovery path as before this existed.
+    // One call, for both Sign In and Sign Up: the backend is the one
+    // place that actually knows whether this phone number is new or
+    // returning (see POST /auth/sign-in and authenticate_token's
+    // docstring) — never trust "which screen was used" for that, since
+    // Firebase ties the account to the number regardless.
+    final enteredName = _pendingDisplayName;
+    _pendingDisplayName = null;
+    try {
+      final (_, isNew) = await _repository.signIn(displayName: enteredName);
+
+      if (!isNew && enteredName != null) {
+        // Came through Sign Up, but the number already had an account —
+        // their real name was never touched server-side; just let them
+        // know why they're not looking at a blank Sign Up form anymore.
+        _ref.read(authNoticeProvider.notifier).state =
+            'You already have an account, signing you in.';
       }
-      _pendingDisplayName = null;
+
+      // currentBackendUserProvider isn't autoDispose — it fetches once
+      // and caches forever until told otherwise. GroupsHomePage can mount
+      // and run its own GET /users/me the instant signInWithCredential
+      // (above) fires authStateChangesProvider, likely *before* this
+      // sign-in call has even finished — caching a stale value.
+      // Invalidating here, after the call is known to have completed,
+      // forces a fresh fetch regardless of which one actually won that
+      // race.
+      _ref.invalidate(currentBackendUserProvider);
+    } catch (_) {
+      // Never block sign-in on this — worst case the name falls back to
+      // the phone number (new user) or is simply whatever it already was
+      // (returning user), and the profile screen is always there to fix
+      // it afterward.
     }
 
     state = const OtpFlowIdle();

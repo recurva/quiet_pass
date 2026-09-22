@@ -4,8 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../core/api_client.dart';
+import '../../theme/app_snackbar.dart';
 import '../../theme/dimens.dart';
 import '../../theme/theme_x.dart';
+import '../auth/auth_controller.dart';
 import '../profile/profile_page.dart';
 import '../push/push_permission_sheet.dart';
 import '../push/push_providers.dart';
@@ -14,14 +16,21 @@ import 'group_detail_page.dart';
 import 'group_models.dart';
 import 'groups_providers.dart';
 import 'join_house_sheet.dart';
+import 'name_sheet.dart';
 
 /// Lands here right after sign-in: fetches (and provisions, on first call)
 /// the backend User, then either lists the caller's houses or prompts them
 /// to create or join one.
 ///
-/// The display name is always captured at signup (PhoneEntryPage) now —
-/// there is no name-onboarding step here anymore. The only remaining
-/// per-session prompt is push permission.
+/// The display name is normally captured at signup (SignUpPage) — but a
+/// genuinely new phone number can also arrive here via SignInPage (number
+/// only, no name field), so this still carries a scoped-down safety net:
+/// if the name is still defaulted to the phone number (see
+/// get_current_user's provisioning), prompt for it once. A returning
+/// user's name is never touched by any of this — see
+/// OtpFlowController._signInAndStoreToken and authenticate_token's
+/// docstring for why that's a backend guarantee, not just a client-side
+/// habit.
 class GroupsHomePage extends ConsumerStatefulWidget {
   const GroupsHomePage({super.key});
 
@@ -47,7 +56,7 @@ class _GroupsHomePageState extends ConsumerState<GroupsHomePage> {
     ref.read(pushClientProvider).start();
     if (!_promptedThisSession && me.hasValue) {
       _promptedThisSession = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) => _maybePromptForPush());
+      WidgetsBinding.instance.addPostFrameCallback((_) => _runPostSignInChecks(me.value!));
     }
 
     return Scaffold(
@@ -132,6 +141,33 @@ class _GroupsHomePageState extends ConsumerState<GroupsHomePage> {
         ),
       ),
     );
+  }
+
+  Future<void> _runPostSignInChecks(AppUser user) async {
+    _maybeShowAuthNotice();
+    await _maybePromptForName(user);
+    await _maybePromptForPush();
+  }
+
+  void _maybeShowAuthNotice() {
+    final notice = ref.read(authNoticeProvider);
+    if (notice == null) return;
+    ref.read(authNoticeProvider.notifier).state = null;
+    if (mounted) showAppSnackBar(context, notice);
+  }
+
+  Future<void> _maybePromptForName(AppUser user) async {
+    if (!mounted) return;
+    // The backend defaults display_name to the phone number at first
+    // sight (get_current_user's provisioning) and never overwrites an
+    // existing user's name for any reason — so this equality still means
+    // exactly "no real name has ever been set," the same signal it was
+    // before SignUpPage existed. Almost always already false by the time
+    // anyone lands here (SignUpPage sends the name immediately at
+    // sign-in), except a genuinely new number that came in through
+    // SignInPage instead.
+    if (user.displayName != user.phoneNumber) return;
+    await showEditNameSheet(context, initialValue: '');
   }
 
   Future<void> _maybePromptForPush() async {

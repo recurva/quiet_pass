@@ -16,17 +16,41 @@ import 'otp_entry_page.dart';
 /// building before it's needed.
 const _countryCode = '+91';
 
-/// First screen of the sign-in flow: collect a phone number and ask Firebase
-/// to send an SMS code. Reads only from `context.colors` / `Space` / `Radii`,
-/// same as the rest of the app.
-class PhoneEntryPage extends ConsumerStatefulWidget {
-  const PhoneEntryPage({super.key});
+/// Number-only entry, for a phone that (presumably) already has an
+/// account. Whether it actually does is a backend decision either way
+/// (see OtpFlowController.sendCode / POST /auth/sign-in) — this screen
+/// never sends a name, so an existing user's name can never be touched
+/// by using it, and a genuinely new number that lands here just gets
+/// prompted for a name once on the home screen instead of up front.
+class SignInPage extends StatelessWidget {
+  const SignInPage({super.key});
 
   @override
-  ConsumerState<PhoneEntryPage> createState() => _PhoneEntryPageState();
+  Widget build(BuildContext context) => const _PhoneAuthPage(isSignUp: false);
 }
 
-class _PhoneEntryPageState extends ConsumerState<PhoneEntryPage> {
+/// Name-and-number entry, for a first-time signup. If the number turns
+/// out to already have an account, the entered name is simply ignored
+/// server-side and the existing one is kept — see
+/// OtpFlowController._signInAndStoreToken for the "you already have an
+/// account" notice shown in that case.
+class SignUpPage extends StatelessWidget {
+  const SignUpPage({super.key});
+
+  @override
+  Widget build(BuildContext context) => const _PhoneAuthPage(isSignUp: true);
+}
+
+class _PhoneAuthPage extends ConsumerStatefulWidget {
+  const _PhoneAuthPage({required this.isSignUp});
+
+  final bool isSignUp;
+
+  @override
+  ConsumerState<_PhoneAuthPage> createState() => _PhoneAuthPageState();
+}
+
+class _PhoneAuthPageState extends ConsumerState<_PhoneAuthPage> {
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   bool _navigatedForCurrentCodeSent = false;
@@ -69,38 +93,42 @@ class _PhoneEntryPageState extends ConsumerState<PhoneEntryPage> {
               Text('QuietPass', style: context.text.titleLarge),
               SizedBox(height: Space.xs.h),
               Text(
-                'Tell us your name and phone number to sign in.',
+                widget.isSignUp
+                    ? 'Tell us your name and phone number to create an account.'
+                    : 'Enter your phone number to sign in.',
                 style: context.text.bodySmall,
               ),
               SizedBox(height: Space.xl.h),
-              TextField(
-                controller: _nameController,
-                textCapitalization: TextCapitalization.words,
-                style: context.text.bodyLarge?.copyWith(color: c.ink),
-                decoration: InputDecoration(
-                  hintText: 'Your name',
-                  hintStyle: context.text.bodyLarge?.copyWith(color: c.ink3),
-                  filled: true,
-                  fillColor: c.surface2,
-                  contentPadding: EdgeInsets.symmetric(
-                    horizontal: Space.md.w,
-                    vertical: Space.md.h,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(Radii.md.r),
-                    borderSide: BorderSide(color: c.line2),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(Radii.md.r),
-                    borderSide: BorderSide(color: c.line2),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(Radii.md.r),
-                    borderSide: BorderSide(color: c.accent),
+              if (widget.isSignUp) ...[
+                TextField(
+                  controller: _nameController,
+                  textCapitalization: TextCapitalization.words,
+                  style: context.text.bodyLarge?.copyWith(color: c.ink),
+                  decoration: InputDecoration(
+                    hintText: 'Your name',
+                    hintStyle: context.text.bodyLarge?.copyWith(color: c.ink3),
+                    filled: true,
+                    fillColor: c.surface2,
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: Space.md.w,
+                      vertical: Space.md.h,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(Radii.md.r),
+                      borderSide: BorderSide(color: c.line2),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(Radii.md.r),
+                      borderSide: BorderSide(color: c.line2),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(Radii.md.r),
+                      borderSide: BorderSide(color: c.accent),
+                    ),
                   ),
                 ),
-              ),
-              SizedBox(height: Space.md.h),
+                SizedBox(height: Space.md.h),
+              ],
               Container(
                 decoration: BoxDecoration(
                   color: c.surface2,
@@ -180,6 +208,18 @@ class _PhoneEntryPageState extends ConsumerState<PhoneEntryPage> {
                       : const Text('Send code'),
                 ),
               ),
+              SizedBox(height: Space.md.h),
+              Center(
+                child: TextButton(
+                  onPressed: isSending ? null : _switchMode,
+                  child: Text(
+                    widget.isSignUp
+                        ? 'Already have an account? Sign in'
+                        : 'New here? Create an account',
+                    style: context.text.bodySmall?.copyWith(color: c.ink2),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -187,12 +227,24 @@ class _PhoneEntryPageState extends ConsumerState<PhoneEntryPage> {
     );
   }
 
+  void _switchMode() {
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => widget.isSignUp ? const SignInPage() : const SignUpPage(),
+      ),
+    );
+  }
+
   void _submit() {
-    final name = _nameController.text.trim();
+    final name = widget.isSignUp ? _nameController.text.trim() : null;
     final nationalNumber = _phoneController.text.trim();
 
-    if (name.isEmpty || nationalNumber.isEmpty) {
-      setState(() => _validationError = 'Enter your name and phone number to continue.');
+    if (nationalNumber.isEmpty || (widget.isSignUp && (name == null || name.isEmpty))) {
+      setState(
+        () => _validationError = widget.isSignUp
+            ? 'Enter your name and phone number to continue.'
+            : 'Enter your phone number to continue.',
+      );
       return;
     }
     setState(() => _validationError = null);

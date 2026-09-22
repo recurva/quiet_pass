@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.routers import (
+    auth,
     chores,
     device_tokens,
     groups,
@@ -63,6 +64,7 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+app.include_router(auth.router, prefix="/api/v1")
 app.include_router(users.router, prefix="/api/v1")
 app.include_router(groups.router, prefix="/api/v1")
 app.include_router(memberships.router, prefix="/api/v1")

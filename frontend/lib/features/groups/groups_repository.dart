@@ -19,6 +19,25 @@ class GroupsRepository {
     return AppUser.fromJson(json as Map<String, dynamic>);
   }
 
+  /// POST /auth/sign-in: called once, right after Firebase OTP
+  /// verification succeeds, for both the Sign In and Sign Up screens
+  /// alike. [displayName] is only ever used server-side if this turns
+  /// out to be a genuinely new phone number — an existing user's name is
+  /// never touched by this call, regardless of what's passed. The
+  /// returned `isNew` is the actual source of truth for new-vs-returning,
+  /// not which screen the caller used.
+  Future<(AppUser, bool)> signIn({String? displayName}) async {
+    final json = await _client.post(
+      '/auth/sign-in',
+      body: {if (displayName != null) 'display_name': displayName},
+    );
+    final map = json as Map<String, dynamic>;
+    return (
+      AppUser.fromJson(map['user'] as Map<String, dynamic>),
+      map['is_new'] as bool,
+    );
+  }
+
   Future<List<AppGroup>> fetchMyGroups() async {
     final json = await _client.get('/groups/mine');
     return (json as List<dynamic>)
