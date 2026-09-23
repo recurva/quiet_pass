@@ -4,7 +4,7 @@ Firebase-token-authenticated caller.
 
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.firebase import TokenExpiredError, TokenInvalidError, verify_id_token
@@ -66,12 +66,34 @@ async def authenticate_token(
     try:
         await db.commit()
     except IntegrityError:
-        # Lost a race with another request provisioning the same user —
-        # still "new" from this call's perspective (the row didn't exist
-        # when we looked), whichever request's insert actually won.
+        # Two different races land here, and only one of them means "the
+        # row we want already exists":
+        #
+        # 1. Lost a race with another request provisioning the exact same
+        #    firebase_uid — re-querying by firebase_uid finds it, still
+        #    "new" from this call's perspective (the row didn't exist when
+        #    we looked).
+        # 2. This token's phone_number has since been claimed by a
+        #    *different* firebase_uid. This happens for a token minted
+        #    before an account was deleted and then re-signed-up with the
+        #    same number: the JWT itself is still cryptographically valid
+        #    (Firebase ID tokens don't self-invalidate on account
+        #    deletion, and this hand-rolled verification never calls out
+        #    to check revocation), so it decodes fine here, but the
+        #    account it names is gone and its phone number now belongs to
+        #    someone else. Re-querying by firebase_uid finds *nothing* in
+        #    this case — there's no row to return, so this has to be
+        #    treated as what it actually is: a token for an account that
+        #    no longer exists, not a successful "new user" race.
         await db.rollback()
         result = await db.execute(select(User).where(User.firebase_uid == firebase_uid))
-        user = result.scalar_one()
+        try:
+            user = result.scalar_one()
+        except NoResultFound as exc:
+            logger.warning("auth.token_for_deleted_account", firebase_uid=firebase_uid)
+            raise TokenInvalidError(
+                "This account no longer exists. Please sign in again."
+            ) from exc
     else:
         await db.refresh(user)
         logger.info("auth.user_provisioned", user_id=str(user.id))

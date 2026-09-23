@@ -64,13 +64,32 @@ class _GroupsHomePageState extends ConsumerState<GroupsHomePage> {
       body: SafeArea(
         child: me.when(
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (error, _) => _ErrorState(
-            message: friendlyErrorMessage(error),
-            onRetry: () {
-              ref.invalidate(currentBackendUserProvider);
-              ref.invalidate(myGroupsProvider);
-            },
-          ),
+          error: (error, _) {
+            // A 401 here specifically means the backend rejected the
+            // caller's own Firebase token, not a transient network blip —
+            // most concretely, a token minted for an account that's since
+            // been deleted (Firebase ID tokens don't self-invalidate on
+            // deletion, so a stale cached one can still decode fine and
+            // reach this far — see authenticate_token's
+            // auth.token_for_deleted_account case). Retrying with the
+            // same dead token would just repeat the same 401 forever;
+            // signing out instead lets AuthGate route back to Sign In on
+            // its own, the same place this session would land anyway.
+            if (error is ApiException && error.statusCode == 401) {
+              WidgetsBinding.instance.addPostFrameCallback((_) async {
+                await ref.read(firebaseAuthProvider).signOut();
+                await ref.read(authTokenStoreProvider).clear();
+              });
+              return const Center(child: CircularProgressIndicator());
+            }
+            return _ErrorState(
+              message: friendlyErrorMessage(error),
+              onRetry: () {
+                ref.invalidate(currentBackendUserProvider);
+                ref.invalidate(myGroupsProvider);
+              },
+            );
+          },
           data: (user) => Padding(
             padding: EdgeInsets.all(Space.base.w),
             child: Column(
