@@ -77,6 +77,12 @@ class _GroupsHomePageState extends ConsumerState<GroupsHomePage> {
             // its own, the same place this session would land anyway.
             if (error is ApiException && error.statusCode == 401) {
               WidgetsBinding.instance.addPostFrameCallback((_) async {
+                // Read before signing out — signing out is what makes
+                // AuthGate swap to SignInPage, and authNoticeProvider is
+                // exactly the mechanism that page already reads to show a
+                // one-shot message after landing (see auth_controller.dart).
+                ref.read(authNoticeProvider.notifier).state =
+                    'Your session ended. Please sign in again.';
                 await ref.read(firebaseAuthProvider).signOut();
                 await ref.read(authTokenStoreProvider).clear();
               });

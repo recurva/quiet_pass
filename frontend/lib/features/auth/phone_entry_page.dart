@@ -5,6 +5,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../core/api_client.dart';
 import '../../core/validation.dart';
+import '../../theme/app_snackbar.dart';
 import '../../theme/dimens.dart';
 import '../../theme/theme_x.dart';
 import '../groups/groups_providers.dart';
@@ -75,6 +76,18 @@ class _PhoneAuthPageState extends ConsumerState<_PhoneAuthPage> {
     final c = context.colors;
     final flowState = ref.watch(otpFlowControllerProvider);
     final isSending = flowState is OtpFlowSendingCode || _checkingPhone;
+
+    // Only relevant use today: GroupsHomePage sets this right before an
+    // automatic sign-out (a session whose token the backend rejected —
+    // see its own comment) so the person lands here already knowing why,
+    // rather than just silently finding themselves back at Sign In with
+    // no explanation.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final notice = ref.read(authNoticeProvider);
+      if (notice == null) return;
+      ref.read(authNoticeProvider.notifier).state = null;
+      if (mounted) showAppSnackBar(context, notice);
+    });
 
     ref.listen<OtpFlowState>(otpFlowControllerProvider, (previous, next) {
       if (next is OtpFlowCodeSent && !_navigatedForCurrentCodeSent) {

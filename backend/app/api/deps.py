@@ -90,7 +90,28 @@ async def authenticate_token(
         try:
             user = result.scalar_one()
         except NoResultFound as exc:
+            # Self-healing, not just error reporting: as long as this
+            # firebase_uid's Firebase Auth account still exists, Firebase
+            # phone-auth will keep re-authenticating this same phone
+            # number to it forever — it never mints a new uid for a
+            # number that already has a live Firebase user, even though
+            # that user is a dead end on the Postgres side. Without
+            # deleting it here, this phone number would be permanently
+            # stuck: every future sign-in attempt hits this exact branch
+            # again. Best-effort — if this fails too, at least the
+            # current request still reports the real problem instead of
+            # masking it with a secondary error.
             logger.warning("auth.token_for_deleted_account", firebase_uid=firebase_uid)
+            try:
+                from app.services import firebase_auth_admin_service
+
+                await firebase_auth_admin_service.delete_firebase_user(firebase_uid)
+            except Exception as cleanup_exc:
+                logger.error(
+                    "auth.ghost_firebase_user_cleanup_failed",
+                    firebase_uid=firebase_uid,
+                    error=str(cleanup_exc),
+                )
             raise TokenInvalidError(
                 "This account no longer exists. Please sign in again."
             ) from exc
