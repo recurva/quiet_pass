@@ -292,6 +292,18 @@ class _AccountActionsCardState extends ConsumerState<_AccountActionsCard> {
     );
   }
 
+  // Neither of these providers is autoDispose (see groups_providers.dart) —
+  // both cache their last fetch until told otherwise. Without this, signing
+  // out and back in as a *different* account in the same app session (the
+  // same phone number reused after the previous account was deleted is the
+  // sharpest case, but any account switch without fully killing the app
+  // hits it) left the new account looking at the previous account's groups
+  // and profile until something else happened to invalidate them.
+  void _invalidateAccountScopedProviders() {
+    ref.invalidate(currentBackendUserProvider);
+    ref.invalidate(myGroupsProvider);
+  }
+
   Future<void> _signOut() async {
     setState(() => _signingOut = true);
     // Pop back to the root route *before* signing out: AuthGate swaps what
@@ -303,6 +315,7 @@ class _AccountActionsCardState extends ConsumerState<_AccountActionsCard> {
     await ref.read(firebaseAuthProvider).signOut();
     await ref.read(authTokenStoreProvider).clear();
     ref.read(showSignUpProvider.notifier).state = false;
+    _invalidateAccountScopedProviders();
   }
 
   Future<void> _confirmDeleteAccount() async {
@@ -317,6 +330,7 @@ class _AccountActionsCardState extends ConsumerState<_AccountActionsCard> {
       await ref.read(firebaseAuthProvider).signOut();
       await ref.read(authTokenStoreProvider).clear();
       ref.read(showSignUpProvider.notifier).state = false;
+      _invalidateAccountScopedProviders();
     } on ApiException catch (e) {
       if (mounted) showAppSnackBar(context, e.message);
     } finally {

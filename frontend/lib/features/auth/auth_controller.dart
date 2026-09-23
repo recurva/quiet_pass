@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -5,6 +7,20 @@ import '../groups/groups_providers.dart';
 import '../groups/groups_repository.dart';
 import 'auth_state.dart';
 import 'auth_token_store.dart';
+
+/// Firebase's own `e.message` for a wrong/expired code is technical
+/// ("The sms verification code used to create the phone auth credential
+/// is invalid...") — this is the short, ordinary phrasing most apps use
+/// instead, for the two cases actually reachable from the code-entry
+/// screen. Anything else falls back to Firebase's own message, since
+/// those are rarer and not worth hand-writing copy for individually.
+String _friendlyOtpErrorMessage(FirebaseAuthException e) {
+  return switch (e.code) {
+    'invalid-verification-code' => 'Please enter the right OTP and try again.',
+    'session-expired' || 'code-expired' => 'This code has expired. Request a new one.',
+    _ => e.message ?? 'That code did not match. Try again.',
+  };
+}
 
 final firebaseAuthProvider = Provider<FirebaseAuth>((ref) => FirebaseAuth.instance);
 
@@ -89,13 +105,40 @@ class OtpFlowController extends StateNotifier<OtpFlowState> {
   // keeps whatever name it already had.
   String? _pendingDisplayName;
 
+  // Bumped on every sendCode call, and checked in every one of
+  // verifyPhoneNumber's callbacks below — including the timeout guard.
+  // Firebase's own callbacks have no cap on how long they can take to
+  // fire (a stuck reCAPTCHA challenge, most often seen calling
+  // verifyPhoneNumber a second time on web without it having been reset,
+  // can mean *never*), and a second sendCode call — e.g. going back from
+  // the code screen to fix a mistyped number and resubmitting — starts a
+  // second, independent verifyPhoneNumber flow without necessarily
+  // cancelling whatever the first one is still waiting on. Without this
+  // guard, a stale callback from that first, abandoned attempt could
+  // clobber the second attempt's state, or the timeout below could fire
+  // after a later attempt already succeeded.
+  int _sendCodeGeneration = 0;
+
   Future<void> sendCode(String phoneNumber, {String? displayName}) async {
     _pendingDisplayName = displayName;
+    final generation = ++_sendCodeGeneration;
     state = const OtpFlowSendingCode();
+
+    Timer(const Duration(seconds: 25), () {
+      if (_sendCodeGeneration != generation) return;
+      if (state is! OtpFlowSendingCode) return;
+      state = OtpFlowError(
+        'Could not send the code. Check your connection and try again.',
+        verificationId: '',
+        phoneNumber: phoneNumber,
+      );
+    });
+
     await _auth.verifyPhoneNumber(
       phoneNumber: phoneNumber,
       timeout: const Duration(seconds: 60),
       verificationCompleted: (credential) async {
+        if (_sendCodeGeneration != generation) return;
         // Android instant/auto-retrieval verification; sign in right away.
         try {
           await _signInAndStoreToken(credential);
@@ -116,6 +159,7 @@ class OtpFlowController extends StateNotifier<OtpFlowState> {
         }
       },
       verificationFailed: (FirebaseAuthException e) {
+        if (_sendCodeGeneration != generation) return;
         // Still on the phone-entry screen at this point (codeSent never
         // fired), not the code-entry screen — nothing to retry via
         // confirmCode either way.
@@ -126,6 +170,7 @@ class OtpFlowController extends StateNotifier<OtpFlowState> {
         );
       },
       codeSent: (verificationId, _) {
+        if (_sendCodeGeneration != generation) return;
         state = OtpFlowCodeSent(verificationId: verificationId, phoneNumber: phoneNumber);
       },
       codeAutoRetrievalTimeout: (verificationId) {
@@ -164,7 +209,7 @@ class OtpFlowController extends StateNotifier<OtpFlowState> {
       state = const OtpFlowIdle();
     } on FirebaseAuthException catch (e) {
       state = OtpFlowError(
-        e.message ?? 'That code did not match. Try again.',
+        _friendlyOtpErrorMessage(e),
         verificationId: verificationId,
         phoneNumber: phoneNumber,
       );
@@ -221,15 +266,20 @@ class OtpFlowController extends StateNotifier<OtpFlowState> {
               'You already have an account, signing you in.';
         }
 
-        // currentBackendUserProvider isn't autoDispose — it fetches once
-        // and caches forever until told otherwise. GroupsHomePage can
-        // mount and run its own GET /users/me the instant
-        // signInWithCredential (above) fires authStateChangesProvider,
-        // likely *before* this sign-in call has even finished — caching a
-        // stale value. Invalidating here, after the call is known to have
-        // completed, forces a fresh fetch regardless of which one
-        // actually won that race.
+        // Neither currentBackendUserProvider nor myGroupsProvider is
+        // autoDispose — both cache their last fetch until told otherwise.
+        // GroupsHomePage can mount and run its own GET /users/me the
+        // instant signInWithCredential (above) fires
+        // authStateChangesProvider, likely *before* this sign-in call has
+        // even finished — caching a stale value. Also covers signing in
+        // as a *different* account without the app having been killed in
+        // between (e.g. the same phone number reused after the previous
+        // account was deleted): without invalidating myGroupsProvider
+        // too, the new account would land on the home screen still
+        // showing the previous account's groups until something else
+        // happened to invalidate it.
         _ref.invalidate(currentBackendUserProvider);
+        _ref.invalidate(myGroupsProvider);
       } catch (_) {
         // Never block sign-in on this — worst case the name falls back to
         // the phone number (new user) or is simply whatever it already

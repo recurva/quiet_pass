@@ -60,11 +60,28 @@ class GroupStatusClient {
   Future<void> connect() async {
     if (_disposed) return;
 
+    // Neither of these is expected once GroupDetailPage is actually
+    // showing (AuthGate doesn't reveal it until backendSignInSettledProvider
+    // says sign-in is done) — but a mid-session token refresh returning
+    // null, or this racing some other Firebase state change, used to just
+    // silently give up here with no retry scheduled at all, leaving the
+    // group screen open with a dead connection until the next full
+    // reconnect trigger (a drop or the app being backgrounded and
+    // foregrounded) came along on its own. Retrying on the same schedule
+    // as a dropped connection means a transient version of either case
+    // recovers within a few seconds instead of needing one of those.
     final user = _auth.currentUser;
-    if (user == null) return;
+    if (user == null) {
+      _scheduleReconnect();
+      return;
+    }
 
     final token = await user.getIdToken();
-    if (token == null || _disposed) return;
+    if (_disposed) return;
+    if (token == null) {
+      _scheduleReconnect();
+      return;
+    }
 
     final uri = Uri.parse('$apiWsBaseUrl/groups/$groupId/ws').replace(
       queryParameters: {'token': token},
@@ -109,6 +126,7 @@ class GroupStatusClient {
         }
       case 'member_joined':
       case 'member_left':
+      case 'member_role_changed':
         if (!_memberListChangedController.isClosed) {
           _memberListChangedController.add(null);
         }

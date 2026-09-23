@@ -24,6 +24,7 @@ async def update_membership_role(
     membership_id: uuid.UUID,
     role: MembershipRole,
     db: AsyncSession = Depends(get_db),
+    redis: Redis = Depends(get_redis),
     current_user: User = Depends(get_current_user),
 ) -> Membership:
     """Promote or demote a member. Only an admin of the same group may do
@@ -41,6 +42,17 @@ async def update_membership_role(
     membership.role = role
     await db.commit()
     await db.refresh(membership)
+
+    # Same refetch-the-member-list mechanism as member_joined/member_left
+    # (see groups.py's join_group) — a role change is exactly the kind of
+    # thing an already-open session on another member's device has no
+    # other way to learn about.
+    payload = {
+        "event": "member_role_changed",
+        "group_id": str(membership.group_id),
+        "user_id": str(membership.user_id),
+    }
+    await redis.publish(group_channel(membership.group_id), json.dumps(payload))
     logger.info("membership.role_updated", membership_id=str(membership_id), role=role.value)
     return membership
 

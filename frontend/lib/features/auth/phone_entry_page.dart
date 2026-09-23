@@ -308,6 +308,13 @@ class _PhoneAuthPageState extends ConsumerState<_PhoneAuthPage> {
       if (mounted) setState(() => _checkingPhone = false);
     }
 
+    // Resets the guard even if this isn't the first attempt this screen has
+    // made — going back from the code screen (state is still whatever it
+    // was left at, not necessarily OtpFlowIdle) and resubmitting a
+    // corrected number used to leave this stuck true, so the next codeSent
+    // was silently ignored and the app just sat there instead of
+    // navigating to the (new) code screen.
+    _navigatedForCurrentCodeSent = false;
     ref.read(otpFlowControllerProvider.notifier).sendCode(phoneNumber, displayName: name);
   }
 }

@@ -97,8 +97,9 @@ class MemberStatus {
 
 /// A housemate combined with their group role, for the detail screen.
 class HouseMember {
-  const HouseMember({required this.user, required this.role});
+  const HouseMember({required this.membershipId, required this.user, required this.role});
 
+  final String membershipId;
   final AppUser user;
   final String role;
 }

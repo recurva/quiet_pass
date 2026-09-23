@@ -84,8 +84,25 @@ class GroupsRepository {
     final users = await Future.wait(memberships.map((m) => fetchUser(m.userId)));
     return [
       for (var i = 0; i < memberships.length; i++)
-        HouseMember(user: users[i], role: memberships[i].role),
+        HouseMember(membershipId: memberships[i].id, user: users[i], role: memberships[i].role),
     ];
+  }
+
+  /// PATCH /memberships/{id}/role: promotes a member to admin. Only an
+  /// admin of the same group may call this — enforced server-side
+  /// (require_admin); the UI only ever shows this action to one.
+  Future<void> promoteToAdmin(String membershipId) async {
+    await _client.patch('/memberships/$membershipId/role?role=admin');
+  }
+
+  /// DELETE /memberships/{id}: removes a membership row outright — used
+  /// both for "leave this house" (the caller's own membership) and, for
+  /// an admin, removing someone else. Same endpoint, same locked
+  /// admin-succession/orphaned-house rule either way (see the backend's
+  /// rebalance_admin_before_departure) — the server can't tell these two
+  /// cases apart from the request alone, and doesn't need to.
+  Future<void> removeMembership(String membershipId) async {
+    await _client.delete('/memberships/$membershipId');
   }
 
   /// [durationMinutes] is ignored server-side for [HouseStatus.openToChat]

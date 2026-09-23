@@ -17,6 +17,8 @@ import 'nudge_wire.dart';
 import 'quiet_pulse_sheet.dart';
 import 'spaces_page.dart';
 
+enum _MemberAction { promote, remove }
+
 /// Reached by tapping a house on GroupsHomePage. Shows housemates with
 /// their live status (pushed over the group's WebSocket) and lets the
 /// caller set their own status.
@@ -67,6 +69,9 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
     final myEntry = me == null ? null : statuses[me.id];
     final myEffectiveStatus = myEntry?.effectiveStatus(now) ?? HouseStatus.openToChat;
     final pendingNudges = ref.watch(groupPendingNudgesProvider(widget.group.id));
+    final members = membersAsync.valueOrNull;
+    final myMembership =
+        me == null || members == null ? null : members.where((m) => m.user.id == me.id).firstOrNull;
 
     return Scaffold(
       backgroundColor: c.bg,
@@ -97,7 +102,7 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _header(context),
+                    _header(context, myMembership),
                     SizedBox(height: Space.lg.h),
                     _yourStatusCard(context, myEffectiveStatus),
                     SizedBox(height: Space.base.h),
@@ -124,15 +129,25 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
                           style: context.text.bodySmall?.copyWith(color: c.ink3),
                         ),
                       ),
-                      data: (members) => Column(
-                        children: [
-                          for (final member in members)
-                            Padding(
-                              padding: EdgeInsets.only(bottom: Space.sm.h),
-                              child: _memberRow(context, member, statuses[member.user.id], now),
-                            ),
-                        ],
-                      ),
+                      data: (members) {
+                        final iAmAdmin = myMembership?.role == 'admin';
+                        return Column(
+                          children: [
+                            for (final member in members)
+                              Padding(
+                                padding: EdgeInsets.only(bottom: Space.sm.h),
+                                child: _memberRow(
+                                  context,
+                                  member,
+                                  statuses[member.user.id],
+                                  now,
+                                  isMe: me != null && member.user.id == me.id,
+                                  canManage: iAmAdmin && myMembership != null,
+                                ),
+                              ),
+                          ],
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -144,7 +159,7 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
     );
   }
 
-  Widget _header(BuildContext context) {
+  Widget _header(BuildContext context, HouseMember? myMembership) {
     final c = context.colors;
     return Row(
       children: [
@@ -184,6 +199,19 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
           ),
           icon: Icon(Icons.meeting_room_outlined, color: c.ink2, size: 20.r),
         ),
+        if (myMembership != null) ...[
+          SizedBox(width: Space.sm.w),
+          IconButton(
+            onPressed: () => _leaveGroup(myMembership.membershipId),
+            style: IconButton.styleFrom(
+              backgroundColor: c.surface2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(Radii.sm.r),
+              ),
+            ),
+            icon: Icon(Icons.logout, color: c.call.solid, size: 20.r),
+          ),
+        ],
       ],
     );
   }
@@ -322,10 +350,21 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
     }
   }
 
-  Widget _memberRow(BuildContext context, HouseMember member, MemberStatus? status, DateTime now) {
+  Widget _memberRow(
+    BuildContext context,
+    HouseMember member,
+    MemberStatus? status,
+    DateTime now, {
+    required bool isMe,
+    required bool canManage,
+  }) {
     final c = context.colors;
     final effectiveStatus = status?.effectiveStatus(now) ?? HouseStatus.openToChat;
     final effectiveExpiresAt = effectiveStatus == HouseStatus.openToChat ? null : status?.expiresAt;
+    // An admin can manage anyone but themself here — self-removal is
+    // "Leave house" (see _header), a deliberately separate, more visible
+    // action rather than being buried in this per-row menu.
+    final showMenu = canManage && !isMe;
     return Container(
       width: double.infinity,
       padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.md.h),
@@ -379,6 +418,25 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
                   ],
                 ),
               ),
+              if (showMenu)
+                PopupMenuButton<_MemberAction>(
+                  icon: Icon(Icons.more_vert, color: c.ink2, size: 20.r),
+                  onSelected: (action) => switch (action) {
+                    _MemberAction.promote => _promoteMember(member),
+                    _MemberAction.remove => _removeMember(member),
+                  },
+                  itemBuilder: (context) => [
+                    if (member.role != 'admin')
+                      const PopupMenuItem(
+                        value: _MemberAction.promote,
+                        child: Text('Make admin'),
+                      ),
+                    PopupMenuItem(
+                      value: _MemberAction.remove,
+                      child: Text('Remove from house', style: TextStyle(color: c.call.solid)),
+                    ),
+                  ],
+                ),
             ],
           ),
           SizedBox(height: Space.sm.h),
@@ -390,6 +448,108 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _promoteMember(HouseMember member) async {
+    try {
+      await ref.read(groupsRepositoryProvider).promoteToAdmin(member.membershipId);
+      ref.invalidate(groupMembersProvider(widget.group.id));
+      if (mounted) showAppSnackBar(context, '${member.user.displayName} is now an admin.');
+    } on ApiException catch (e) {
+      if (mounted) showAppSnackBar(context, e.message);
+    }
+  }
+
+  Future<void> _removeMember(HouseMember member) async {
+    final confirmed = await _showConfirmSheet(
+      context,
+      title: 'Remove ${member.user.displayName}?',
+      body: 'They\'ll be removed from this house immediately.',
+      confirmLabel: 'Remove',
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await ref.read(groupsRepositoryProvider).removeMembership(member.membershipId);
+      ref.invalidate(groupMembersProvider(widget.group.id));
+      if (mounted) showAppSnackBar(context, '${member.user.displayName} was removed.');
+    } on ApiException catch (e) {
+      if (mounted) showAppSnackBar(context, e.message);
+    }
+  }
+
+  Future<void> _leaveGroup(String myMembershipId) async {
+    final confirmed = await _showConfirmSheet(
+      context,
+      title: 'Leave ${widget.group.name}?',
+      body: "You'll need a new invite to rejoin.",
+      confirmLabel: 'Leave',
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await ref.read(groupsRepositoryProvider).removeMembership(myMembershipId);
+      ref.invalidate(myGroupsProvider);
+      if (mounted) Navigator.of(context).pop();
+    } on ApiException catch (e) {
+      if (mounted) showAppSnackBar(context, e.message);
+    }
+  }
+
+  Future<bool?> _showConfirmSheet(
+    BuildContext context, {
+    required String title,
+    required String body,
+    required String confirmLabel,
+  }) {
+    final c = context.colors;
+    return showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.all(Space.base.w),
+        child: Container(
+          padding: EdgeInsets.all(Space.base.w),
+          decoration: BoxDecoration(
+            color: c.surface,
+            borderRadius: BorderRadius.circular(Radii.lg.r),
+            border: Border.all(color: c.line),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: context.text.titleLarge),
+              SizedBox(height: Space.sm.h),
+              Text(body, style: context.text.bodySmall?.copyWith(color: c.ink3)),
+              SizedBox(height: Space.lg.h),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(sheetContext).pop(false),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: c.ink2,
+                        side: BorderSide(color: c.line2),
+                      ),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  SizedBox(width: Space.sm.w),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () => Navigator.of(sheetContext).pop(true),
+                      style: FilledButton.styleFrom(backgroundColor: c.call.solid),
+                      child: Text(confirmLabel),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
