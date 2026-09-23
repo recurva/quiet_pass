@@ -233,12 +233,13 @@ class _PhoneAuthPageState extends ConsumerState<_PhoneAuthPage> {
     );
   }
 
+  // Flips which screen AuthGate shows, in place — see showSignUpProvider's
+  // doc comment for why this can't be a pushed route: that would replace
+  // AuthGate itself in the Navigator stack, and popUntil(isFirst) after a
+  // later OTP completion (see OtpEntryPage) would then reveal this
+  // pushed-over route again instead of the signed-in app.
   void _switchMode() {
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => widget.isSignUp ? const SignInPage() : const SignUpPage(),
-      ),
-    );
+    ref.read(showSignUpProvider.notifier).state = !widget.isSignUp;
   }
 
   Future<void> _submit() async {

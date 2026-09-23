@@ -37,6 +37,18 @@ final authNoticeProvider = StateProvider<String?>((ref) => null);
 /// touches the name, silently discarding whatever name was just entered.
 final backendSignInSettledProvider = StateProvider<bool>((ref) => true);
 
+/// Which of the two signed-out screens [AuthGate] shows. Switching between
+/// Sign In and Sign Up flips this rather than pushing a new route over
+/// AuthGate: a pushed route would replace AuthGate itself in the
+/// Navigator stack (see the old _switchMode, which used
+/// Navigator.pushReplacement), and once AuthGate is gone from the stack
+/// it can no longer react to sign-in completing — popping back after OTP
+/// just reveals that same replaced route again instead of the home
+/// screen, until a full app restart rebuilds AuthGate fresh. Keeping
+/// AuthGate as the one screen that's always on the stack, and toggling
+/// which child it shows, avoids that entirely.
+final showSignUpProvider = StateProvider<bool>((ref) => false);
+
 final otpFlowControllerProvider =
     StateNotifierProvider<OtpFlowController, OtpFlowState>((ref) {
   return OtpFlowController(

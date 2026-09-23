@@ -17,6 +17,7 @@ class AuthGate extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authStateChangesProvider);
     final backendSettled = ref.watch(backendSignInSettledProvider);
+    final showSignUp = ref.watch(showSignUpProvider);
 
     return authState.when(
       // Firebase confirms the credential (and fires this) before our own
@@ -25,7 +26,7 @@ class AuthGate extends ConsumerWidget {
       // swapping to GroupsHomePage right away, is what stops its
       // GET /users/me from racing (and losing) against /auth/sign-in.
       data: (user) => user == null
-          ? const SignInPage()
+          ? (showSignUp ? const SignUpPage() : const SignInPage())
           : (backendSettled ? const GroupsHomePage() : const _SplashScaffold()),
       loading: () => const _SplashScaffold(),
       error: (_, __) => const SignInPage(),

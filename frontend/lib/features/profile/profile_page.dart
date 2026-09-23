@@ -302,6 +302,7 @@ class _AccountActionsCardState extends ConsumerState<_AccountActionsCard> {
     Navigator.of(context).popUntil((route) => route.isFirst);
     await ref.read(firebaseAuthProvider).signOut();
     await ref.read(authTokenStoreProvider).clear();
+    ref.read(showSignUpProvider.notifier).state = false;
   }
 
   Future<void> _confirmDeleteAccount() async {
@@ -315,6 +316,7 @@ class _AccountActionsCardState extends ConsumerState<_AccountActionsCard> {
       Navigator.of(context).popUntil((route) => route.isFirst);
       await ref.read(firebaseAuthProvider).signOut();
       await ref.read(authTokenStoreProvider).clear();
+      ref.read(showSignUpProvider.notifier).state = false;
     } on ApiException catch (e) {
       if (mounted) showAppSnackBar(context, e.message);
     } finally {
