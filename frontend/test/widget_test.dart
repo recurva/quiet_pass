@@ -16,7 +16,13 @@ void main() {
     expect(codeSent.verificationId, 'abc123');
     expect(codeSent.phoneNumber, '+15551234567');
 
-    const error = OtpFlowError('That code did not match. Try again.');
+    const error = OtpFlowError(
+      'That code did not match. Try again.',
+      verificationId: 'abc123',
+      phoneNumber: '+15551234567',
+    );
     expect(error.message, 'That code did not match. Try again.');
+    expect(error.verificationId, 'abc123');
+    expect(error.phoneNumber, '+15551234567');
   });
 }

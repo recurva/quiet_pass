@@ -128,6 +128,17 @@ def _read_result(group_id: uuid.UUID, user_id: uuid.UUID, value: str | None, ttl
     )
 
 
+async def clear_status(redis: Redis, group_id: uuid.UUID, user_id: uuid.UUID) -> None:
+    """Deletes a member's live status key outright, rather than leaving it
+    to expire on its own TTL. Needed specifically for a departing member
+    (leaving a group, or deleting their account): Open to Chat has no TTL
+    at all, so without this a departed member's last status would sit in
+    Redis and keep showing up in get_group_statuses for the group's
+    remaining members indefinitely.
+    """
+    await redis.delete(_status_key(group_id, user_id))
+
+
 async def get_status(redis: Redis, group_id: uuid.UUID, user_id: uuid.UUID) -> StatusRead:
     """Read a single member's live status. Resolves to Open to Chat if
     expired or never set — see `_read_result`.

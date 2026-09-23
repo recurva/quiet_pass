@@ -46,6 +46,7 @@ class _OtpEntryPageState extends ConsumerState<OtpEntryPage> {
     final phoneNumber = switch (flowState) {
       OtpFlowCodeSent(:final phoneNumber) => phoneNumber,
       OtpFlowVerifying(:final phoneNumber) => phoneNumber,
+      OtpFlowError(:final phoneNumber) when phoneNumber.isNotEmpty => phoneNumber,
       _ => null,
     };
 

@@ -103,12 +103,27 @@ class OtpFlowController extends StateNotifier<OtpFlowState> {
         } catch (_) {
           // See confirmCode's matching catch: signInWithCredential can
           // throw even after natively succeeding, and authStateChangesProvider
-          // has already fired by this point regardless.
-          state = const OtpFlowError('Something went wrong, but you may already be signed in.');
+          // has already fired by this point regardless. There's no code
+          // screen visible to retry from at this point (instant
+          // verification skips it entirely), so this is unretryable by
+          // construction — the empty verificationId reflects that rather
+          // than pretending a retry is possible.
+          state = OtpFlowError(
+            'Something went wrong, but you may already be signed in.',
+            verificationId: '',
+            phoneNumber: phoneNumber,
+          );
         }
       },
       verificationFailed: (FirebaseAuthException e) {
-        state = OtpFlowError(e.message ?? 'Could not send the code. Try again.');
+        // Still on the phone-entry screen at this point (codeSent never
+        // fired), not the code-entry screen — nothing to retry via
+        // confirmCode either way.
+        state = OtpFlowError(
+          e.message ?? 'Could not send the code. Try again.',
+          verificationId: '',
+          phoneNumber: phoneNumber,
+        );
       },
       codeSent: (verificationId, _) {
         state = OtpFlowCodeSent(verificationId: verificationId, phoneNumber: phoneNumber);
@@ -121,23 +136,38 @@ class OtpFlowController extends StateNotifier<OtpFlowState> {
   }
 
   Future<void> confirmCode(String smsCode) async {
-    final current = state;
-    if (current is! OtpFlowCodeSent) return;
+    // Retryable from either OtpFlowCodeSent (first attempt) or
+    // OtpFlowError (a previous attempt was a wrong or expired code) —
+    // both carry the same verificationId/phoneNumber. Without accepting
+    // OtpFlowError here too, a wrong code would leave the Verify button
+    // looking enabled but silently doing nothing on every subsequent tap,
+    // since this used to only recognize OtpFlowCodeSent.
+    final (verificationId, phoneNumber) = switch (state) {
+      OtpFlowCodeSent(:final verificationId, :final phoneNumber) => (
+          verificationId,
+          phoneNumber,
+        ),
+      OtpFlowError(:final verificationId, :final phoneNumber) when verificationId.isNotEmpty =>
+        (verificationId, phoneNumber),
+      _ => (null, null),
+    };
+    if (verificationId == null || phoneNumber == null) return;
 
-    state = OtpFlowVerifying(
-      verificationId: current.verificationId,
-      phoneNumber: current.phoneNumber,
-    );
+    state = OtpFlowVerifying(verificationId: verificationId, phoneNumber: phoneNumber);
 
     try {
       final credential = PhoneAuthProvider.credential(
-        verificationId: current.verificationId,
+        verificationId: verificationId,
         smsCode: smsCode,
       );
       await _signInAndStoreToken(credential);
       state = const OtpFlowIdle();
     } on FirebaseAuthException catch (e) {
-      state = OtpFlowError(e.message ?? 'That code did not match. Try again.');
+      state = OtpFlowError(
+        e.message ?? 'That code did not match. Try again.',
+        verificationId: verificationId,
+        phoneNumber: phoneNumber,
+      );
     } catch (_) {
       // Anything else — notably firebase_auth's own known type-cast bug,
       // which can throw here even though the native sign-in underneath
@@ -146,7 +176,11 @@ class OtpFlowController extends StateNotifier<OtpFlowState> {
       // spinning forever: authStateChangesProvider has already fired by
       // this point regardless, so AuthGate is on its way to the signed-in
       // app whether or not this line runs.
-      state = const OtpFlowError('Something went wrong, but you may already be signed in.');
+      state = OtpFlowError(
+        'Something went wrong, but you may already be signed in.',
+        verificationId: verificationId,
+        phoneNumber: phoneNumber,
+      );
     }
   }
 

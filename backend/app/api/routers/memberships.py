@@ -1,14 +1,19 @@
+import json
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.authz import require_admin
-from app.api.deps import get_current_user, get_db
+from app.api.deps import get_current_user, get_db, get_redis
 from app.core.logging import get_logger
+from app.models.group import Group
 from app.models.membership import Membership, MembershipRole
 from app.models.user import User
 from app.schemas.membership import MembershipRead
+from app.services.membership_service import rebalance_admin_before_departure
+from app.services.status_service import clear_status, group_channel
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/memberships", tags=["memberships"])
@@ -44,10 +49,15 @@ async def update_membership_role(
 async def remove_membership(
     membership_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    redis: Redis = Depends(get_redis),
     current_user: User = Depends(get_current_user),
 ) -> None:
     """A member may remove themselves (leave); removing someone else
     requires being an admin of the same group.
+
+    Same locked client decision as account deletion (see
+    rebalance_admin_before_departure): a house is never left without an
+    admin, and never left orphaned with no members at all either.
     """
     membership = await db.get(Membership, membership_id)
     if membership is None:
@@ -58,5 +68,34 @@ async def remove_membership(
     if membership.user_id != current_user.id:
         await require_admin(db, group_id=membership.group_id, user_id=current_user.id)
 
+    group_id = membership.group_id
+    departed_user_id = membership.user_id
+
+    should_delete_group, _promoted_user_id = await rebalance_admin_before_departure(
+        db, group_id=group_id, departing_user_id=departed_user_id
+    )
+
     await db.delete(membership)
+
+    if should_delete_group:
+        group = await db.get(Group, group_id)
+        if group is not None:
+            await db.delete(group)
+
     await db.commit()
+
+    if not should_delete_group:
+        await clear_status(redis, group_id, departed_user_id)
+
+    payload = {
+        "event": "member_left",
+        "group_id": str(group_id),
+        "user_id": str(departed_user_id),
+    }
+    await redis.publish(group_channel(group_id), json.dumps(payload))
+    logger.info(
+        "group.member_left",
+        group_id=str(group_id),
+        user_id=str(departed_user_id),
+        group_deleted=should_delete_group,
+    )

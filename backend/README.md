@@ -293,6 +293,26 @@ Firebase Auth cleanup. Only a genuine failure (credentials configured but
 the call itself errors) stops the Postgres deletion, logged as
 `user.delete.firebase_failed`.
 
+**Never leaves a house without an admin, or orphaned with no members at
+all.** Locked client decision: if an admin leaves or deletes their
+account and no other admin remains in that group, the longest-standing
+remaining member (earliest `joined_at`) is auto-promoted. If they were
+the group's only member, the `Group` row itself is deleted instead —
+`ON DELETE CASCADE` on `spaces`/`reservations`/`chores`/`memberships`
+then cleans up everything under it. See
+`app/services/membership_service.rebalance_admin_before_departure`,
+called from both `DELETE /users/me` and `DELETE /memberships/{id}` (the
+"leave a group" endpoint, which previously did neither this nor publish
+`member_left` at all) — same rule, same helper, one place to get it
+right instead of two chances to drift apart.
+
+A departing member's live Redis status (`status_service.clear_status`)
+is deleted outright rather than left to its own TTL — necessary
+specifically for Open to Chat, which has no TTL at all, so without this
+a departed member's last status would keep showing up for a still-active
+group's remaining members indefinitely. Skipped when the group itself
+was just deleted, since nobody's left to read it anyway.
+
 ## Reservations (base layer)
 
 Booking a space, without the recurring-bookings or emergency-override

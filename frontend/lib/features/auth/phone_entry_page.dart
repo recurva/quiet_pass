@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../core/api_client.dart';
+import '../../core/validation.dart';
 import '../../theme/dimens.dart';
 import '../../theme/theme_x.dart';
 import '../groups/groups_providers.dart';
@@ -109,8 +110,10 @@ class _PhoneAuthPageState extends ConsumerState<_PhoneAuthPage> {
                 TextField(
                   controller: _nameController,
                   textCapitalization: TextCapitalization.words,
+                  maxLength: displayNameMaxLength,
                   style: context.text.bodyLarge?.copyWith(color: c.ink),
                   decoration: InputDecoration(
+                    counterText: '',
                     hintText: 'Your name',
                     hintStyle: context.text.bodyLarge?.copyWith(color: c.ink3),
                     filled: true,
@@ -161,7 +164,10 @@ class _PhoneAuthPageState extends ConsumerState<_PhoneAuthPage> {
                       child: TextField(
                         controller: _phoneController,
                         keyboardType: TextInputType.phone,
-                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(10),
+                        ],
                         style: context.text.bodyLarge?.copyWith(color: c.ink),
                         decoration: InputDecoration(
                           hintText: '98765 43210',
@@ -243,17 +249,27 @@ class _PhoneAuthPageState extends ConsumerState<_PhoneAuthPage> {
   }
 
   Future<void> _submit() async {
-    final name = widget.isSignUp ? _nameController.text.trim() : null;
     final nationalNumber = _phoneController.text.trim();
 
-    if (nationalNumber.isEmpty || (widget.isSignUp && (name == null || name.isEmpty))) {
-      setState(
-        () => _validationError = widget.isSignUp
-            ? 'Enter your name and phone number to continue.'
-            : 'Enter your phone number to continue.',
-      );
+    // Name checked first when both are present: a housemate seeing a
+    // combined "enter your name and phone number" for a name-only mistake
+    // (phone already valid) had no way to tell which field actually
+    // needed fixing.
+    if (widget.isSignUp) {
+      final nameError = validateDisplayName(_nameController.text);
+      if (nameError != null) {
+        setState(() => _validationError = nameError);
+        return;
+      }
+    }
+
+    final phoneError = validateNationalPhoneNumber(nationalNumber);
+    if (phoneError != null) {
+      setState(() => _validationError = phoneError);
       return;
     }
+
+    final name = widget.isSignUp ? _nameController.text.trim() : null;
     setState(() => _validationError = null);
 
     final phoneNumber = '$_countryCode$nationalNumber';

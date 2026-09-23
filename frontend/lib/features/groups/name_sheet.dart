@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../core/api_client.dart';
+import '../../core/validation.dart';
 import '../../theme/dimens.dart';
 import '../../theme/theme_x.dart';
 import 'groups_providers.dart';
@@ -74,8 +75,10 @@ class _EditNameSheetState extends ConsumerState<_EditNameSheet> {
               controller: _controller,
               autofocus: true,
               textCapitalization: TextCapitalization.words,
+              maxLength: displayNameMaxLength,
               style: context.text.bodyLarge?.copyWith(color: c.ink),
               decoration: InputDecoration(
+                counterText: '',
                 hintText: 'Your name',
                 hintStyle: context.text.bodyLarge?.copyWith(color: c.ink3),
                 filled: true,
@@ -121,11 +124,12 @@ class _EditNameSheetState extends ConsumerState<_EditNameSheet> {
   }
 
   Future<void> _submit() async {
-    final name = _controller.text.trim();
-    if (name.isEmpty) {
-      setState(() => _error = 'Enter a name.');
+    final nameError = validateDisplayName(_controller.text);
+    if (nameError != null) {
+      setState(() => _error = nameError);
       return;
     }
+    final name = _controller.text.trim();
 
     setState(() {
       _submitting = true;

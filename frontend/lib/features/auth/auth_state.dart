@@ -32,8 +32,15 @@ class OtpFlowVerifying extends OtpFlowState {
   final String phoneNumber;
 }
 
+/// Carries the same [verificationId]/[phoneNumber] the preceding
+/// [OtpFlowCodeSent] had, not just the error message — a wrong or
+/// expired code needs to be retryable without going all the way back to
+/// resending a fresh SMS, and OtpFlowController.confirmCode needs
+/// somewhere to read the verificationId back out of for that retry.
 class OtpFlowError extends OtpFlowState {
-  const OtpFlowError(this.message);
+  const OtpFlowError(this.message, {required this.verificationId, required this.phoneNumber});
 
   final String message;
+  final String verificationId;
+  final String phoneNumber;
 }
