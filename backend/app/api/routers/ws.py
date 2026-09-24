@@ -92,7 +92,21 @@ async def group_status_stream(
             if message.get("type") != "message":
                 continue
             # Relay verbatim: the publisher already stamped an "event" field.
-            await websocket.send_text(message["data"])
+            try:
+                await websocket.send_text(message["data"])
+            except Exception as exc:
+                # A client disconnecting mid-message races this task's own
+                # loop; without this it surfaced as an unretrieved
+                # asyncio task exception (a warning buried in server
+                # logs, not a diagnosable event) instead of the same
+                # clean shutdown the outer receive_text() loop already
+                # gets via WebSocketDisconnect. Stop pumping — the outer
+                # try/finally's cleanup still runs regardless of how this
+                # task ends.
+                logger.warning(
+                    "ws.pump_send_failed", group_id=str(group_id), error=str(exc)
+                )
+                return
 
     pump_task = asyncio.create_task(pump_redis_to_client())
 

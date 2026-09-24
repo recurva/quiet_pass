@@ -1,4 +1,3 @@
-import json
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -14,7 +13,7 @@ from app.models.membership import Membership, MembershipRole
 from app.models.user import User
 from app.schemas.membership import MembershipRead
 from app.services.membership_service import rebalance_admin_before_departure
-from app.services.status_service import clear_status, group_channel
+from app.services.status_service import clear_status, publish_group_event
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/memberships", tags=["memberships"])
@@ -77,7 +76,7 @@ async def update_membership_role(
         "group_id": str(membership.group_id),
         "user_id": str(membership.user_id),
     }
-    await redis.publish(group_channel(membership.group_id), json.dumps(payload))
+    await publish_group_event(redis, membership.group_id, payload)
     logger.info("membership.role_updated", membership_id=str(membership_id), role=role.value)
     return membership
 
@@ -129,7 +128,7 @@ async def remove_membership(
         "group_id": str(group_id),
         "user_id": str(departed_user_id),
     }
-    await redis.publish(group_channel(group_id), json.dumps(payload))
+    await publish_group_event(redis, group_id, payload)
     logger.info(
         "group.member_left",
         group_id=str(group_id),

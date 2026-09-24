@@ -1,4 +1,3 @@
-import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -12,7 +11,7 @@ from app.models.device_token import DeviceToken
 from app.models.membership import Membership
 from app.schemas.nudge import NudgeRead, NudgeType
 from app.services import push_service
-from app.services.status_service import group_channel
+from app.services.status_service import publish_group_event
 
 logger = get_logger(__name__)
 
@@ -46,7 +45,17 @@ class QuietPulseDailyCapError(NudgeError):
 def render_message(nudge_type: NudgeType, duration_minutes: int | None) -> str:
     """The server-generated neutral wording. Callers never supply free text."""
     if nudge_type == NudgeType.QUIET_PULSE:
-        return f"A housemate asked for {duration_minutes} minutes of quiet."
+        # duration_minutes is required for QUIET_PULSE at the HTTP layer
+        # (NudgeSend's own validator), but this function has no such
+        # guarantee for a caller that isn't send_nudge's FastAPI route —
+        # a future background job or admin tool calling it directly. A
+        # generic phrase beats leaking "None" into a message a
+        # housemate actually reads.
+        return (
+            f"A housemate asked for {duration_minutes} minutes of quiet."
+            if duration_minutes is not None
+            else "A housemate asked for some quiet."
+        )
     return _PRESET_MESSAGES[nudge_type]
 
 
@@ -70,11 +79,23 @@ async def _enforce_quiet_pulse_limits(
     """Per-sender cooldown, then per-group daily cap. Order matters: a
     cooldown-blocked attempt never touches the cap counter, and a
     cap-blocked attempt doesn't start a cooldown the sender didn't earn.
+
+    The cooldown itself is claimed atomically via `SET ... NX` — checking
+    the TTL and setting the key as two separate steps (the previous
+    shape) left a window between them where two concurrent requests from
+    the same sender could both read "no cooldown active" and both
+    proceed, sending two quiet pulses inside what was supposed to be one
+    cooldown window (e.g. a double-tap, or a client retrying a slow
+    request). `NX` makes the claim itself the check: only one concurrent
+    caller can ever win it.
     """
     cooldown_key = _cooldown_key(group_id, sender_id)
-    cooldown_ttl = await redis.ttl(cooldown_key)
-    if cooldown_ttl and cooldown_ttl > 0:
-        raise QuietPulseCooldownError(retry_after_seconds=cooldown_ttl)
+    claimed = await redis.set(
+        cooldown_key, "1", ex=settings.quiet_pulse_cooldown_seconds, nx=True
+    )
+    if not claimed:
+        cooldown_ttl = await redis.ttl(cooldown_key)
+        raise QuietPulseCooldownError(retry_after_seconds=max(cooldown_ttl, 1))
 
     day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     cap_key = _daily_cap_key(group_id, day)
@@ -83,9 +104,10 @@ async def _enforce_quiet_pulse_limits(
         await redis.expire(cap_key, _seconds_until_utc_midnight())
     if count > settings.quiet_pulse_daily_cap:
         await redis.decr(cap_key)  # don't let a rejected attempt eat the cap
+        # ...or the cooldown this same attempt already claimed above —
+        # only a *successful* send should ever start one.
+        await redis.delete(cooldown_key)
         raise QuietPulseDailyCapError(daily_cap=settings.quiet_pulse_daily_cap)
-
-    await redis.set(cooldown_key, "1", ex=settings.quiet_pulse_cooldown_seconds)
 
 
 async def _push_tokens_for_group(
@@ -170,7 +192,7 @@ async def send_nudge(
     )
 
     payload = {"event": "nudge", **nudge.model_dump(mode="json")}
-    await redis.publish(group_channel(group_id), json.dumps(payload))
+    await publish_group_event(redis, group_id, payload)
 
     # sender_id is logged (internal, for the cap/cooldown) but never appears
     # in `nudge` / `payload` above, which is what other members receive.

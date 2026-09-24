@@ -1,4 +1,3 @@
-import json
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -14,7 +13,7 @@ from app.models.user import User
 from app.schemas.user import UserRead, UserUpdate
 from app.services import firebase_auth_admin_service
 from app.services.membership_service import rebalance_admin_before_departure
-from app.services.status_service import clear_status, group_channel
+from app.services.status_service import clear_status, publish_group_event
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/users", tags=["users"])
@@ -123,7 +122,7 @@ async def delete_current_user(
 
     for group_id in group_ids:
         payload = {"event": "member_left", "group_id": str(group_id), "user_id": str(user_id)}
-        await redis.publish(group_channel(group_id), json.dumps(payload))
+        await publish_group_event(redis, group_id, payload)
 
     logger.info(
         "user.deleted",
@@ -137,9 +136,31 @@ async def delete_current_user(
 async def get_user(
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> User:
+    """Fetch another user's profile — gated on sharing at least one group
+    with them, the same rule every other cross-user lookup in this app
+    follows (e.g. status.py's get_member_status). Previously ungated: any
+    authenticated caller could look up any other user by UUID.
+    """
     user = await db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+    if user.id != current_user.id:
+        shared_group = await db.execute(
+            select(Membership.id)
+            .where(Membership.user_id == user_id)
+            .where(
+                Membership.group_id.in_(
+                    select(Membership.group_id).where(Membership.user_id == current_user.id)
+                )
+            )
+        )
+        if shared_group.first() is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to view this user.",
+            )
+
     return user

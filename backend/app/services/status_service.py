@@ -35,6 +35,33 @@ def group_channel(group_id: uuid.UUID) -> str:
     return f"{_KEY_PREFIX}:group:{group_id}"
 
 
+async def publish_group_event(redis: Redis, group_id: uuid.UUID, payload: dict) -> None:
+    """Best-effort publish to a group's live channel — the one place every
+    router/service (status, nudges, reservations, membership changes)
+    routes through, instead of each calling `redis.publish` directly.
+
+    Every call site publishes *after* its own DB write has already
+    committed, so a Redis hiccup here must never turn an
+    already-successful write into a client-visible 500 — the caller
+    already has what they asked for; a raised exception here would just
+    make them retry into a 409/conflict for something that already
+    happened. Logged, never raised.
+    """
+    try:
+        await redis.publish(group_channel(group_id), json.dumps(payload))
+    except Exception as exc:
+        # payload_event, not event — structlog's bound logger already
+        # takes the log message itself as a positional `event` arg, and
+        # a same-named kwarg collides with it (TypeError, not a logging
+        # quirk: caught this exact crash writing this fix).
+        logger.error(
+            "live_event.publish_failed",
+            group_id=str(group_id),
+            payload_event=payload.get("event"),
+            error=str(exc),
+        )
+
+
 def resolve_ttl_seconds(status: HouseStatus, duration_minutes: int | None) -> int | None:
     """Turns a client's requested status + optional duration into a TTL in
     seconds, enforcing the Time Limits spec. Returns None for Open to Chat
@@ -93,7 +120,7 @@ async def set_status(
         "ttl_seconds": ttl_seconds,
         "expires_at": expires_at.isoformat() if expires_at else None,
     }
-    await redis.publish(group_channel(group_id), json.dumps(payload))
+    await publish_group_event(redis, group_id, payload)
 
     logger.info(
         "status.set",
@@ -156,16 +183,31 @@ async def get_group_statuses(redis: Redis, group_id: uuid.UUID) -> list[StatusRe
     callers render that absence as Open to Chat the same way `get_status`
     would resolve it explicitly, so the two stay consistent without this
     function needing the group's full membership list to fill gaps.
+
+    Fetches every matched key's value and TTL in one pipelined round
+    trip rather than two separate GET/TTL calls per key — this runs on
+    every status fetch and every new WebSocket connection's initial
+    snapshot, so an N-key group used to mean 2N sequential Redis round
+    trips here.
     """
     pattern = _status_key(group_id, "*")
-    results: list[StatusRead] = []
+    keys = [key async for key in redis.scan_iter(match=pattern)]
+    if not keys:
+        return []
 
-    async for key in redis.scan_iter(match=pattern):
-        user_id = uuid.UUID(key.split(":")[-1])
-        value = await redis.get(key)
-        ttl = await redis.ttl(key)
+    pipe = redis.pipeline(transaction=False)
+    for key in keys:
+        pipe.get(key)
+        pipe.ttl(key)
+    responses = await pipe.execute()
+
+    results: list[StatusRead] = []
+    for i, key in enumerate(keys):
+        value = responses[2 * i]
+        ttl = responses[2 * i + 1]
         if value is None:
             continue
+        user_id = uuid.UUID(key.split(":")[-1])
         results.append(_read_result(group_id, user_id, value, ttl))
 
     return results

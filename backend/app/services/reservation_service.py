@@ -10,7 +10,6 @@ error. Everything else here (past-time check, max-advance check) is a
 plain, non-racy validation of the request itself.
 """
 
-import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -25,7 +24,7 @@ from app.models.chore import Chore
 from app.models.reservation import Reservation
 from app.models.space import Space
 from app.schemas.reservation import ReservationRead
-from app.services.status_service import group_channel
+from app.services.status_service import publish_group_event
 
 logger = get_logger(__name__)
 
@@ -154,7 +153,7 @@ async def create_reservation(
         "space_name": space.name,
         **reservation_read.model_dump(mode="json"),
     }
-    await redis.publish(group_channel(group_id), json.dumps(payload))
+    await publish_group_event(redis, group_id, payload)
 
     logger.info(
         "reservation.created",
@@ -173,6 +172,6 @@ async def list_group_reservations(
     query = select(Reservation).where(Reservation.group_id == group_id)
     if not include_past:
         query = query.where(Reservation.end_time >= datetime.now(timezone.utc))
-    query = query.order_by(Reservation.start_time)
+    query = query.order_by(Reservation.start_time).limit(1000)
     result = await db.execute(query)
     return list(result.scalars().all())

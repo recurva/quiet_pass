@@ -1,4 +1,3 @@
-import json
 import secrets
 import uuid
 
@@ -17,7 +16,7 @@ from app.models.user import User
 from app.schemas.group import GroupCreate, GroupJoin, GroupRead
 from app.schemas.membership import MembershipRead
 from app.services.reservation_service import seed_default_spaces
-from app.services.status_service import group_channel
+from app.services.status_service import publish_group_event
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/groups", tags=["groups"])
@@ -49,6 +48,16 @@ async def create_group(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Could not create group."
         ) from exc
+    except Exception as exc:
+        # Anything else — a DB blip mid-flush/seed, for instance — used
+        # to propagate as a raw, unstructured 500 instead of the clean,
+        # logged error every other failure path in this file gets.
+        await db.rollback()
+        logger.error("group.create.failed", name=payload.name, error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not create group. Try again.",
+        ) from exc
 
     await db.refresh(group)
     return group
@@ -59,10 +68,14 @@ async def list_my_groups(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[Group]:
+    # No real household needs anywhere near this many groups — a hard
+    # cap here is a safety net against pathological data, not a real
+    # pagination feature; nothing about the endpoint's shape changes.
     result = await db.execute(
         select(Group)
         .join(Membership, Membership.group_id == Group.id)
         .where(Membership.user_id == current_user.id)
+        .limit(500)
     )
     return list(result.scalars().all())
 
@@ -103,7 +116,7 @@ async def join_group(
         "group_id": str(group.id),
         "user_id": str(current_user.id),
     }
-    await redis.publish(group_channel(group.id), json.dumps(payload_out))
+    await publish_group_event(redis, group.id, payload_out)
     logger.info("group.member_joined", group_id=str(group.id), user_id=str(current_user.id))
 
     return membership
@@ -129,5 +142,7 @@ async def list_group_members(
     current_user: User = Depends(get_current_user),
 ) -> list[Membership]:
     await require_membership(db, group_id=group_id, user_id=current_user.id)
-    result = await db.execute(select(Membership).where(Membership.group_id == group_id))
+    result = await db.execute(
+        select(Membership).where(Membership.group_id == group_id).limit(500)
+    )
     return list(result.scalars().all())

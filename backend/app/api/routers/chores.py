@@ -31,6 +31,7 @@ async def list_group_chores(
         .join(Reservation, Reservation.id == Chore.reservation_id)
         .where(Reservation.group_id == group_id)
         .order_by(Chore.due_at)
+        .limit(1000)
     )
     return list(result.scalars().all())
 
@@ -48,6 +49,15 @@ async def mark_chore_done(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Only the assignee can complete this."
         )
+
+    # The assignee check above isn't enough on its own: the user row
+    # itself isn't touched by DELETE /memberships/{id} (only account
+    # deletion removes it), so someone removed from this group after
+    # being assigned a chore would otherwise still be able to complete
+    # it — matching every other endpoint's require_membership gate.
+    reservation = await db.get(Reservation, chore.reservation_id)
+    if reservation is not None:
+        await require_membership(db, group_id=reservation.group_id, user_id=current_user.id)
 
     chore.done = True
     await db.commit()
