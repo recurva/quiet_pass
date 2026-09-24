@@ -3,6 +3,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from redis.asyncio import Redis
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.authz import require_admin
@@ -29,7 +30,11 @@ async def update_membership_role(
 ) -> Membership:
     """Promote or demote a member. Only an admin of the same group may do
     this. A group supports multiple admins, so this only ever changes one
-    row's role.
+    row's role — except demoting the group's *last* admin, which is
+    rejected outright (see below): the same "never left without an
+    admin" rule rebalance_admin_before_departure enforces on departure
+    applies here too, since a self-demotion is otherwise a single,
+    unguarded request that bypasses it entirely.
     """
     membership = await db.get(Membership, membership_id)
     if membership is None:
@@ -38,6 +43,26 @@ async def update_membership_role(
         )
 
     await require_admin(db, group_id=membership.group_id, user_id=current_user.id)
+
+    if membership.role == MembershipRole.ADMIN and role != MembershipRole.ADMIN:
+        # Locks the group's membership rows so two concurrent demotions
+        # (or a demotion racing a departure) can't both see "someone else
+        # is still admin" and both proceed — same reasoning as
+        # rebalance_admin_before_departure's own lock.
+        other_admins_result = await db.execute(
+            select(Membership.id)
+            .where(
+                Membership.group_id == membership.group_id,
+                Membership.role == MembershipRole.ADMIN,
+                Membership.id != membership.id,
+            )
+            .with_for_update()
+        )
+        if other_admins_result.first() is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Promote another member to admin first — a house can't be left without one.",
+            )
 
     membership.role = role
     await db.commit()

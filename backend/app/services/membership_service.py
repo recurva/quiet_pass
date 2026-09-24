@@ -38,23 +38,32 @@ async def rebalance_admin_before_departure(
       group's last admin — the caller doesn't need to do anything else
       with it (the promotion is already applied here); it's returned
       only for logging/event purposes.
+
+    Locks every Membership row for this group (`FOR UPDATE`) before
+    reading any of them — required, not optional: two members leaving
+    the same group at the same instant (two devices, or one leaving via
+    DELETE /memberships/{id} while another deletes their whole account)
+    would otherwise each compute "who's left" from a snapshot taken
+    before the other's change is visible, and could both conclude no
+    promotion is needed — or both promote different people — leaving the
+    group with zero admins despite this function having run twice. The
+    lock makes the second call block until the first's transaction
+    commits, then see its result before deciding anything.
     """
     result = await db.execute(
         select(Membership)
-        .where(Membership.group_id == group_id, Membership.user_id != departing_user_id)
+        .where(Membership.group_id == group_id)
         .order_by(Membership.joined_at.asc())
+        .with_for_update()
     )
-    remaining = list(result.scalars().all())
+    all_memberships = list(result.scalars().all())
+    remaining = [m for m in all_memberships if m.user_id != departing_user_id]
 
     if not remaining:
         return True, None
 
-    departing_result = await db.execute(
-        select(Membership.role).where(
-            Membership.group_id == group_id, Membership.user_id == departing_user_id
-        )
-    )
-    departing_role = departing_result.scalar_one_or_none()
+    departing = next((m for m in all_memberships if m.user_id == departing_user_id), None)
+    departing_role = departing.role if departing is not None else None
     if departing_role != MembershipRole.ADMIN:
         return False, None
 
