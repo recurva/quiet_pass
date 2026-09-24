@@ -4,7 +4,7 @@ Firebase-token-authenticated caller.
 
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError, NoResultFound
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.firebase import TokenExpiredError, TokenInvalidError, verify_id_token
@@ -66,55 +66,55 @@ async def authenticate_token(
     try:
         await db.commit()
     except IntegrityError:
-        # Two different races land here, and only one of them means "the
-        # row we want already exists":
+        # Two different races land here, and they need different fixes:
         #
         # 1. Lost a race with another request provisioning the exact same
         #    firebase_uid — re-querying by firebase_uid finds it, still
         #    "new" from this call's perspective (the row didn't exist when
         #    we looked).
-        # 2. This token's phone_number has since been claimed by a
-        #    *different* firebase_uid. This happens for a token minted
-        #    before an account was deleted and then re-signed-up with the
-        #    same number: the JWT itself is still cryptographically valid
-        #    (Firebase ID tokens don't self-invalidate on account
-        #    deletion, and this hand-rolled verification never calls out
-        #    to check revocation), so it decodes fine here, but the
-        #    account it names is gone and its phone number now belongs to
-        #    someone else. Re-querying by firebase_uid finds *nothing* in
-        #    this case — there's no row to return, so this has to be
-        #    treated as what it actually is: a token for an account that
-        #    no longer exists, not a successful "new user" race.
+        # 2. This token's phone_number is already held by a *different*
+        #    firebase_uid — an orphaned row from a Firebase Auth account
+        #    that no longer exists (Firebase ID tokens don't self-
+        #    invalidate on deletion, and this hand-rolled verification
+        #    never checks revocation, so a stale cached token can still
+        #    decode fine and reach this far; or, more durably, leftover
+        #    test/junk data from before robust deletion existed). Since
+        #    Firebase enforces one live account per phone number, this
+        #    token minting successfully *is* Firebase's own confirmation
+        #    that firebase_uid is the number's real, current owner right
+        #    now — so the fix is to repair the stale row in place (point
+        #    its firebase_uid at the real one) and keep going, not reject
+        #    the sign-in and make the caller retry. A phone number stuck
+        #    behind a stale row would otherwise never recover on its own:
+        #    every future attempt would hit this exact same conflict
+        #    again, since Firebase always re-authenticates a verified
+        #    number to its one existing Firebase user.
         await db.rollback()
         result = await db.execute(select(User).where(User.firebase_uid == firebase_uid))
-        try:
-            user = result.scalar_one()
-        except NoResultFound as exc:
-            # Self-healing, not just error reporting: as long as this
-            # firebase_uid's Firebase Auth account still exists, Firebase
-            # phone-auth will keep re-authenticating this same phone
-            # number to it forever — it never mints a new uid for a
-            # number that already has a live Firebase user, even though
-            # that user is a dead end on the Postgres side. Without
-            # deleting it here, this phone number would be permanently
-            # stuck: every future sign-in attempt hits this exact branch
-            # again. Best-effort — if this fails too, at least the
-            # current request still reports the real problem instead of
-            # masking it with a secondary error.
-            logger.warning("auth.token_for_deleted_account", firebase_uid=firebase_uid)
-            try:
-                from app.services import firebase_auth_admin_service
+        user = result.scalar_one_or_none()
+        if user is not None:
+            return user, False
 
-                await firebase_auth_admin_service.delete_firebase_user(firebase_uid)
-            except Exception as cleanup_exc:
-                logger.error(
-                    "auth.ghost_firebase_user_cleanup_failed",
-                    firebase_uid=firebase_uid,
-                    error=str(cleanup_exc),
-                )
-            raise TokenInvalidError(
-                "This account no longer exists. Please sign in again."
-            ) from exc
+        stale_result = await db.execute(select(User).where(User.phone_number == phone_number))
+        stale_user = stale_result.scalar_one_or_none()
+        if stale_user is None:
+            # Shouldn't happen — this INSERT only has two unique
+            # constraints, firebase_uid and phone_number, and firebase_uid
+            # is ruled out above — but don't silently swallow it if it
+            # somehow does.
+            logger.error("auth.unresolvable_conflict", firebase_uid=firebase_uid)
+            raise TokenInvalidError("Could not verify this account. Please try again.")
+
+        logger.warning(
+            "auth.repaired_orphaned_account",
+            old_firebase_uid=stale_user.firebase_uid,
+            new_firebase_uid=firebase_uid,
+            user_id=str(stale_user.id),
+        )
+        stale_user.firebase_uid = firebase_uid
+        await db.commit()
+        await db.refresh(stale_user)
+        return stale_user, False
     else:
         await db.refresh(user)
         logger.info("auth.user_provisioned", user_id=str(user.id))
