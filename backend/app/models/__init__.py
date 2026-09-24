@@ -1,4 +1,5 @@
 from app.models.chore import Chore
+from app.models.deleted_firebase_uid import DeletedFirebaseUid
 from app.models.device_token import DeviceToken
 from app.models.group import Group
 from app.models.membership import Membership, MembershipRole
@@ -8,6 +9,7 @@ from app.models.user import User
 
 __all__ = [
     "Chore",
+    "DeletedFirebaseUid",
     "DeviceToken",
     "Group",
     "Membership",

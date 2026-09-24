@@ -45,6 +45,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.logging import get_logger
 from app.db.redis import get_redis_client
 from app.db.session import AsyncSessionLocal
+from app.models.deleted_firebase_uid import DeletedFirebaseUid
 from app.models.group import Group
 from app.models.membership import Membership
 from app.models.user import User
@@ -92,6 +93,12 @@ async def _delete_orphan(db: AsyncSession, redis: Redis, user: User) -> None:
     user_id = user.id
     firebase_uid = user.firebase_uid
     await db.delete(user)
+    # This row is only ever reached because _is_ghost already confirmed
+    # firebase_uid is gone from Firebase — same tombstone
+    # delete_current_user writes on that same confirmation, closing the
+    # same resurrection gap (see DeletedFirebaseUid's docstring) for
+    # whatever stale token, if any, is still floating around for it.
+    db.add(DeletedFirebaseUid(firebase_uid=firebase_uid))
     await db.commit()
 
     still_active_group_ids = [gid for gid in group_ids if gid not in groups_to_delete]

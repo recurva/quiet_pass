@@ -11,6 +11,7 @@ from app.core.firebase import TokenExpiredError, TokenInvalidError, verify_id_to
 from app.core.logging import get_logger
 from app.db.redis import get_redis
 from app.db.session import get_db
+from app.models.deleted_firebase_uid import DeletedFirebaseUid
 from app.models.user import User
 
 logger = get_logger(__name__)
@@ -56,6 +57,20 @@ async def authenticate_token(
 
     if user is not None:
         return user, False
+
+    # Firebase ID tokens stay cryptographically valid for up to an hour
+    # after issuance regardless of whether the account they name still
+    # exists (this hand-rolled verification never checks revocation —
+    # see the module docstring in app/core/firebase.py). Without this
+    # check, a still-unexpired token from *before* a deletion could reach
+    # here afterward and silently provision a brand-new, blank account
+    # under the same firebase_uid the caller had just deleted — no
+    # re-verification, no explicit signup, just a quiet resurrection on
+    # the next GET /users/me. A deleted account has to stay deleted.
+    tombstoned = await db.get(DeletedFirebaseUid, firebase_uid)
+    if tombstoned is not None:
+        logger.warning("auth.token_for_tombstoned_account", firebase_uid=firebase_uid)
+        raise TokenInvalidError("This account has been deleted.")
 
     user = User(
         firebase_uid=firebase_uid,

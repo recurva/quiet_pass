@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db, get_redis
 from app.core.logging import get_logger
+from app.models.deleted_firebase_uid import DeletedFirebaseUid
 from app.models.group import Group
 from app.models.membership import Membership
 from app.models.user import User
@@ -97,7 +98,9 @@ async def delete_current_user(
             await db.delete(group)
 
     try:
-        await firebase_auth_admin_service.delete_firebase_user(current_user.firebase_uid)
+        firebase_confirmed_gone = await firebase_auth_admin_service.delete_firebase_user(
+            current_user.firebase_uid
+        )
     except Exception as exc:
         await db.rollback()
         logger.error("user.delete.firebase_failed", user_id=str(current_user.id), error=str(exc))
@@ -107,7 +110,18 @@ async def delete_current_user(
         ) from exc
 
     user_id = current_user.id
+    firebase_uid = current_user.firebase_uid
     await db.delete(current_user)
+    # Only when Firebase itself has confirmed this uid is genuinely gone
+    # (not the "credentials unconfigured" False, e.g. local dev) — see
+    # DeletedFirebaseUid's docstring for what this tombstone closes.
+    # Tombstoning on the unconfigured-credentials path would be actively
+    # wrong there: Firebase was never actually told to delete anything,
+    # so a real resignup with the same number later gets back this exact
+    # same firebase_uid, and finding it tombstoned would permanently
+    # lock that phone number out instead of letting them back in.
+    if firebase_confirmed_gone:
+        db.add(DeletedFirebaseUid(firebase_uid=firebase_uid))
     await db.commit()
 
     # Redis never sees the cascade delete above — a departed member's
