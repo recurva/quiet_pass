@@ -16,18 +16,16 @@ import 'group_detail_page.dart';
 import 'group_models.dart';
 import 'groups_providers.dart';
 import 'join_house_sheet.dart';
-import 'name_sheet.dart';
 
-/// Lands here right after sign-in: fetches (and provisions, on first call)
-/// the backend User, then either lists the caller's houses or prompts them
-/// to create or join one.
+/// Lands here right after sign-in: fetches the backend User, then either
+/// lists the caller's houses or prompts them to create or join one.
 ///
-/// The display name is normally captured at signup (SignUpPage) — but a
-/// genuinely new phone number can also arrive here via SignInPage (number
-/// only, no name field), so this still carries a scoped-down safety net:
-/// if the name is still defaulted to the phone number (see
-/// get_current_user's provisioning), prompt for it once. A returning
-/// user's name is never touched by any of this — see
+/// No name-capture safety net here on purpose: SignUpPage always sends a
+/// name up front, and SignInPage now refuses to proceed at all for a
+/// number with no existing account (see phone_entry_page.dart's
+/// GET /auth/phone-exists check) — so every account reaching this screen
+/// either had its name set at signup, or already had one from before. A
+/// returning user's name is never touched regardless — see
 /// OtpFlowController._signInAndStoreToken and authenticate_token's
 /// docstring for why that's a backend guarantee, not just a client-side
 /// habit.
@@ -170,7 +168,6 @@ class _GroupsHomePageState extends ConsumerState<GroupsHomePage> {
 
   Future<void> _runPostSignInChecks(AppUser user) async {
     _maybeShowAuthNotice();
-    await _maybePromptForName(user);
     await _maybePromptForPush();
   }
 
@@ -179,20 +176,6 @@ class _GroupsHomePageState extends ConsumerState<GroupsHomePage> {
     if (notice == null) return;
     ref.read(authNoticeProvider.notifier).state = null;
     if (mounted) showAppSnackBar(context, notice);
-  }
-
-  Future<void> _maybePromptForName(AppUser user) async {
-    if (!mounted) return;
-    // The backend defaults display_name to the phone number at first
-    // sight (get_current_user's provisioning) and never overwrites an
-    // existing user's name for any reason — so this equality still means
-    // exactly "no real name has ever been set," the same signal it was
-    // before SignUpPage existed. Almost always already false by the time
-    // anyone lands here (SignUpPage sends the name immediately at
-    // sign-in), except a genuinely new number that came in through
-    // SignInPage instead.
-    if (user.displayName != user.phoneNumber) return;
-    await showEditNameSheet(context, initialValue: '');
   }
 
   Future<void> _maybePromptForPush() async {

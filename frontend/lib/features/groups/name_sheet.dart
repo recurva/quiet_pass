@@ -8,11 +8,12 @@ import '../../theme/dimens.dart';
 import '../../theme/theme_x.dart';
 import 'groups_providers.dart';
 
-/// Two call sites: the profile screen's edit action (the common case —
-/// the name is normally already captured at signup, via SignUpPage), and
-/// GroupsHomePage's one-time safety net for the rare case where a
-/// genuinely new phone number arrived through SignInPage instead (number
-/// only, no name field) and so has none yet.
+/// Called from the profile screen's edit action — the name itself is
+/// always captured up front at signup (SignUpPage), and SignInPage never
+/// reaches an account with no name to edit (it refuses to proceed at all
+/// for a number with no existing account), so this is purely an
+/// after-the-fact "change my name" affordance, not a fallback for
+/// anything ever arriving unnamed.
 Future<bool> showEditNameSheet(BuildContext context, {required String initialValue}) {
   return showModalBottomSheet<bool>(
         context: context,

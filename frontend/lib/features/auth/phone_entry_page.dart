@@ -26,9 +26,11 @@ const _countryCode = '+91';
 /// ("No account found. Please sign up."). This screen never sends a
 /// name, so an existing user's name can never be touched by using it. A
 /// number that slips past that check regardless (a race with someone
-/// signing up elsewhere in the same instant) still can't create a
-/// nameless dead end: GroupsHomePage's one-time safety net prompts for a
-/// name in that case — see its _maybePromptForName.
+/// signing up elsewhere in the same instant) still can't land on a
+/// nameless account: authenticate_token's own repair path
+/// (app/api/deps.py) only ever adopts an *existing* row, which by
+/// construction already has whatever name that account was given at
+/// signup — there's nothing left here to prompt for.
 class SignInPage extends StatelessWidget {
   const SignInPage({super.key});
 
