@@ -60,6 +60,7 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
     // `reservation` events arrive — see the provider's doc comment.
     ref.watch(groupReservationsLiveRefreshProvider(groupId));
     ref.watch(groupMembersLiveRefreshProvider(groupId));
+    ref.watch(groupChoresLiveRefreshProvider(groupId));
 
     final spacesAsync = ref.watch(groupSpacesProvider(groupId));
     final reservationsAsync = ref.watch(groupReservationsProvider(groupId));

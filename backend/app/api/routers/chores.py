@@ -1,16 +1,18 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.authz import require_membership
-from app.api.deps import get_current_user, get_db
+from app.api.deps import get_current_user, get_db, get_redis
 from app.core.logging import get_logger
 from app.models.chore import Chore
 from app.models.reservation import Reservation
 from app.models.user import User
 from app.schemas.chore import ChoreRead
+from app.services.status_service import publish_group_event
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["chores"])
@@ -40,6 +42,7 @@ async def list_group_chores(
 async def mark_chore_done(
     chore_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    redis: Redis = Depends(get_redis),
     current_user: User = Depends(get_current_user),
 ) -> Chore:
     chore = await db.get(Chore, chore_id)
@@ -63,4 +66,18 @@ async def mark_chore_done(
     await db.commit()
     await db.refresh(chore)
     logger.info("chore.completed", chore_id=str(chore_id), user_id=str(current_user.id))
+
+    # Unlike reservation creation (which publishes its own "reservation"
+    # event), completing a chore previously published nothing at all —
+    # every other member's (and the completer's own second device's)
+    # chore list only updated on whatever next happened to invalidate it,
+    # not live. See group_status_client.dart's "chore_done" case, added
+    # alongside this, for the client-side half of this fix.
+    if reservation is not None:
+        await publish_group_event(
+            redis,
+            reservation.group_id,
+            {"event": "chore_done", "group_id": str(reservation.group_id), "chore_id": str(chore.id)},
+        )
+
     return chore

@@ -35,6 +35,7 @@ class GroupStatusClient {
   final _nudgesController = StreamController<AppNudge>.broadcast();
   final _reservationsController = StreamController<AppReservation>.broadcast();
   final _memberListChangedController = StreamController<void>.broadcast();
+  final _choreUpdatedController = StreamController<void>.broadcast();
 
   /// Emits the full current `{userId: MemberStatus}` map on every change
   /// (including the initial snapshot).
@@ -56,6 +57,13 @@ class GroupStatusClient {
   /// [reservations], for the same reason: membership doesn't have a
   /// natural latest-value-per-key shape either).
   Stream<void> get memberListChanged => _memberListChangedController.stream;
+
+  /// Fires once per chore completion, in real time. Same "just a signal,
+  /// refetch the list" shape as [memberListChanged] — a chore_done event
+  /// only carries the chore's id, not a full chore payload, and the
+  /// Spaces screen already refetches the whole list on any reservation
+  /// event anyway.
+  Stream<void> get choreUpdated => _choreUpdatedController.stream;
 
   Future<void> connect() async {
     if (_disposed) return;
@@ -130,6 +138,10 @@ class GroupStatusClient {
         if (!_memberListChangedController.isClosed) {
           _memberListChangedController.add(null);
         }
+      case 'chore_done':
+        if (!_choreUpdatedController.isClosed) {
+          _choreUpdatedController.add(null);
+        }
     }
   }
 
@@ -148,5 +160,6 @@ class GroupStatusClient {
     _nudgesController.close();
     _reservationsController.close();
     _memberListChangedController.close();
+    _choreUpdatedController.close();
   }
 }

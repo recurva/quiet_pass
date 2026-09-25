@@ -81,6 +81,20 @@ final groupReservationEventsProvider =
   return ref.watch(groupStatusClientProvider(groupId)).reservations;
 });
 
+/// Refetches the chore list whenever a `chore_done` event arrives —
+/// previously nothing published this at all, so marking a chore done
+/// only showed up for anyone else (or the completer's own second
+/// screen) after something unrelated happened to invalidate the list.
+final groupChoresLiveRefreshProvider = Provider.autoDispose.family<void, String>((ref, groupId) {
+  ref.listen(groupChoreEventsProvider(groupId), (previous, next) {
+    next.whenData((_) => ref.invalidate(groupChoresProvider(groupId)));
+  });
+});
+
+final groupChoreEventsProvider = StreamProvider.autoDispose.family<void, String>((ref, groupId) {
+  return ref.watch(groupStatusClientProvider(groupId)).choreUpdated;
+});
+
 /// Refetches the member list whenever a `member_joined` or `member_left`
 /// event arrives — previously neither existed at all, so an already-open
 /// session only learned about a new housemate, or one whose account was
