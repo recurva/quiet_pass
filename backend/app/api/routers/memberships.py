@@ -8,10 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.authz import require_admin
 from app.api.deps import get_current_user, get_db, get_redis
 from app.core.logging import get_logger
+from app.models.device_token import DeviceToken
 from app.models.group import Group
 from app.models.membership import Membership, MembershipRole
 from app.models.user import User
 from app.schemas.membership import MembershipRead
+from app.services import push_service
 from app.services.membership_service import rebalance_admin_before_departure
 from app.services.status_service import clear_status, publish_group_event
 
@@ -101,11 +103,19 @@ async def remove_membership(
             status_code=status.HTTP_404_NOT_FOUND, detail="Membership not found."
         )
 
-    if membership.user_id != current_user.id:
+    was_kicked = membership.user_id != current_user.id
+    if was_kicked:
         await require_admin(db, group_id=membership.group_id, user_id=current_user.id)
 
     group_id = membership.group_id
     departed_user_id = membership.user_id
+
+    # Only needed for the kicked-push body below, and the group row is
+    # never touched in that branch (removing someone else always leaves
+    # at least the admin who did the removing) — safe to read now,
+    # before anything here is deleted.
+    group = await db.get(Group, group_id) if was_kicked else None
+    group_name = group.name if group is not None else None
 
     should_delete_group, _promoted_user_id = await rebalance_admin_before_departure(
         db, group_id=group_id, departing_user_id=departed_user_id
@@ -114,19 +124,24 @@ async def remove_membership(
     await db.delete(membership)
 
     if should_delete_group:
-        group = await db.get(Group, group_id)
-        if group is not None:
-            await db.delete(group)
+        group_to_delete = await db.get(Group, group_id)
+        if group_to_delete is not None:
+            await db.delete(group_to_delete)
 
     await db.commit()
 
     if not should_delete_group:
         await clear_status(redis, group_id, departed_user_id)
 
+    # "kicked" distinguishes this from a voluntary leave for whichever
+    # client happens to be the departed user's own — see
+    # group_status_client.dart's handling. Every *other* member's client
+    # only ever cares that the member list changed either way.
     payload = {
         "event": "member_left",
         "group_id": str(group_id),
         "user_id": str(departed_user_id),
+        "kicked": was_kicked,
     }
     await publish_group_event(redis, group_id, payload)
     logger.info(
@@ -134,4 +149,21 @@ async def remove_membership(
         group_id=str(group_id),
         user_id=str(departed_user_id),
         group_deleted=should_delete_group,
+        kicked=was_kicked,
     )
+
+    # Best-effort, same as every other push send in this app (nudges) —
+    # a failure here must never fail the removal itself, which has
+    # already committed by this point regardless.
+    if was_kicked and group_name is not None:
+        tokens_result = await db.execute(
+            select(DeviceToken.token).where(DeviceToken.user_id == departed_user_id)
+        )
+        tokens = [row[0] for row in tokens_result.all()]
+        if tokens:
+            await push_service.send_to_tokens(
+                tokens,
+                title="QuietPass",
+                body=f"You've been removed from {group_name}.",
+                data={"event": "member_removed", "group_id": str(group_id)},
+            )

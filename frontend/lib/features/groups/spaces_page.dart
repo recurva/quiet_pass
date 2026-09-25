@@ -157,6 +157,51 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
                   );
                 },
               ),
+              SizedBox(height: Space.base.h),
+              Text(
+                'HOUSEMATES\' CHORES',
+                style: context.text.labelLarge?.copyWith(
+                  color: c.ink3,
+                  fontSize: 11.sp,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              SizedBox(height: Space.sm.h),
+              choresAsync.when(
+                loading: () => const SizedBox.shrink(),
+                error: (_, __) => const SizedBox.shrink(),
+                // Chores aren't anonymous — GET /groups/{id}/chores already
+                // returns every member's chores, whoever it's assigned to
+                // (see the backend's list_group_chores docstring); this was
+                // previously fetched but then filtered down to just the
+                // caller's own before ever reaching the screen, so a
+                // housemate had no way to see who still owed what. "Done"
+                // stays out of this list entirely (read-only, no action) —
+                // markChoreDone is assignee-only server-side regardless.
+                data: (chores) {
+                  final others = me == null
+                      ? const <AppChore>[]
+                      : chores.where((chore) => chore.userId != me.id && !chore.done).toList();
+                  if (others.isEmpty) {
+                    return Text(
+                      'Nothing pending for anyone else.',
+                      style: context.text.bodySmall?.copyWith(color: c.ink3),
+                    );
+                  }
+                  return Column(
+                    children: [
+                      for (final chore in others)
+                        Padding(
+                          padding: EdgeInsets.only(bottom: Space.sm.h),
+                          child: _OtherChoreRow(
+                            chore: chore,
+                            assigneeName: namesById[chore.userId] ?? 'A housemate',
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
             ],
           ),
         ),
@@ -334,5 +379,42 @@ class _ChoreRow extends ConsumerWidget {
     } on ApiException catch (e) {
       if (context.mounted) showAppSnackBar(context, e.message);
     }
+  }
+}
+
+/// Read-only counterpart to [_ChoreRow] for a housemate's own chore — no
+/// "Done" button, since markChoreDone is assignee-only server-side
+/// regardless of anything this screen shows or hides.
+class _OtherChoreRow extends StatelessWidget {
+  const _OtherChoreRow({required this.chore, required this.assigneeName});
+
+  final AppChore chore;
+  final String assigneeName;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final isDue = DateTime.now().toUtc().isAfter(chore.dueAt);
+
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.md.h),
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(Radii.md.r),
+        border: Border.all(color: c.line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(chore.template, style: context.text.bodyLarge),
+          SizedBox(height: 1.h),
+          Text(
+            '$assigneeName · ${isDue ? 'Due now' : 'Due ${chore.dueAt.toLocalDateTimeLabel()}'}',
+            style: context.text.bodySmall?.copyWith(color: isDue ? c.call.solid : c.ink3),
+          ),
+        ],
+      ),
+    );
   }
 }

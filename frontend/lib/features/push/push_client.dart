@@ -125,11 +125,22 @@ class PushClient {
           priority: Priority.high,
         ),
       ),
-      payload: message.data['group_id'],
+      // Same reasoning as _openGroupFrom: a member_removed tap must never
+      // carry a group_id payload, or the tap handler below would try to
+      // open a group the caller no longer belongs to.
+      payload: message.data['event'] == 'member_removed' ? null : message.data['group_id'],
     );
   }
 
   void _openGroupFrom(RemoteMessage message) {
+    // A member_removed tap must never open that group's detail page —
+    // the caller isn't a member of it anymore by the time they tap this,
+    // and every membership-gated fetch on that screen would just 403.
+    // GroupsHomePage's own resume refresh (see its WidgetsBindingObserver)
+    // is what actually reflects the removal; there's nowhere useful for
+    // this tap to navigate to beyond the app's own default landing.
+    if (message.data['event'] == 'member_removed') return;
+
     final groupId = message.data['group_id'];
     if (groupId == null) return;
     rootNavigatorKey.currentState?.push(

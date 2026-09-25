@@ -36,8 +36,38 @@ class GroupsHomePage extends ConsumerStatefulWidget {
   ConsumerState<GroupsHomePage> createState() => _GroupsHomePageState();
 }
 
-class _GroupsHomePageState extends ConsumerState<GroupsHomePage> {
+class _GroupsHomePageState extends ConsumerState<GroupsHomePage>
+    with WidgetsBindingObserver {
   bool _promptedThisSession = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // Being removed from a house while this screen isn't the active one —
+  // backgrounded, or the caller was inside that group's own detail page,
+  // which handles the immediate case itself (see its own removal check)
+  // — has no live channel back to this list otherwise: there's no
+  // standing WebSocket for a group the caller isn't currently viewing.
+  // The removal push notification (member_removed) is the actual
+  // trigger for that case; this is the same "refetch on resume" safety
+  // net spaces_page.dart already uses for its own lists, for when the
+  // push arrived while backgrounded and the tap (or lack of one) never
+  // ran any explicit invalidate.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.invalidate(myGroupsProvider);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

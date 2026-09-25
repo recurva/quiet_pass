@@ -36,6 +36,7 @@ async def send_nudge(
             sender_id=current_user.id,
             nudge_type=payload.type,
             duration_minutes=int(payload.duration_minutes) if payload.duration_minutes else None,
+            custom_message=payload.message,
         )
     except nudge_service.QuietPulseCooldownError as exc:
         logger.warning(

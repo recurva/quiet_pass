@@ -10,6 +10,7 @@ import '../../theme/app_snackbar.dart';
 import '../../theme/dimens.dart';
 import '../../theme/status_widgets.dart';
 import '../../theme/theme_x.dart';
+import 'custom_nudge_sheet.dart';
 import 'group_models.dart';
 import 'groups_providers.dart';
 import 'house_status_wire.dart';
@@ -17,7 +18,7 @@ import 'nudge_wire.dart';
 import 'quiet_pulse_sheet.dart';
 import 'spaces_page.dart';
 
-enum _MemberAction { promote, remove }
+enum _MemberAction { promote, demote, remove }
 
 /// Reached by tapping a house on GroupsHomePage. Shows housemates with
 /// their live status (pushed over the group's WebSocket) and lets the
@@ -36,6 +37,7 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
   int? _pendingDurationMinutes;
   NudgeType? _sendingPreset;
   bool _sendingQuietPulse = false;
+  bool _handledOwnRemoval = false;
 
   // Nothing server-side pushes an update at the exact moment a status's
   // TTL lapses (Redis just lets the key expire silently) — this timer is
@@ -72,6 +74,23 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
     final members = membersAsync.valueOrNull;
     final myMembership =
         me == null || members == null ? null : members.where((m) => m.user.id == me.id).firstOrNull;
+
+    // Catches being kicked while this screen is open: the member list
+    // just refetched (via groupMembersLiveRefreshProvider, above) and no
+    // longer includes the caller. Guarded so this only fires once — a
+    // voluntary leave already pops this screen itself before the
+    // refetch even lands, but if that race ever goes the other way,
+    // this would otherwise re-fire on every subsequent rebuild once
+    // myMembership is permanently null.
+    if (!_handledOwnRemoval && me != null && members != null && myMembership == null) {
+      _handledOwnRemoval = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ref.invalidate(myGroupsProvider);
+        Navigator.of(context).popUntil((route) => route.isFirst);
+        showAppSnackBar(context, "You've been removed from this house.");
+      });
+    }
 
     return Scaffold(
       backgroundColor: c.bg,
@@ -316,6 +335,11 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
                   sending: _sendingPreset == preset,
                   onTap: () => _sendPreset(preset),
                 ),
+              _PresetButton(
+                type: NudgeType.custom,
+                sending: _sendingPreset == NudgeType.custom,
+                onTap: _sendCustomNudge,
+              ),
             ],
           ),
         ],
@@ -343,6 +367,22 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
     setState(() => _sendingPreset = type);
     try {
       await ref.read(groupsRepositoryProvider).sendNudge(widget.group.id, type);
+    } on ApiException catch (e) {
+      if (mounted) showAppSnackBar(context, e.message);
+    } finally {
+      if (mounted) setState(() => _sendingPreset = null);
+    }
+  }
+
+  Future<void> _sendCustomNudge() async {
+    final message = await showCustomNudgeSheet(context);
+    if (message == null || !mounted) return; // dismissed without confirming
+
+    setState(() => _sendingPreset = NudgeType.custom);
+    try {
+      await ref
+          .read(groupsRepositoryProvider)
+          .sendNudge(widget.group.id, NudgeType.custom, message: message);
     } on ApiException catch (e) {
       if (mounted) showAppSnackBar(context, e.message);
     } finally {
@@ -423,6 +463,7 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
                   icon: Icon(Icons.more_vert, color: c.ink2, size: 20.r),
                   onSelected: (action) => switch (action) {
                     _MemberAction.promote => _promoteMember(member),
+                    _MemberAction.demote => _demoteMember(member),
                     _MemberAction.remove => _removeMember(member),
                   },
                   itemBuilder: (context) => [
@@ -430,6 +471,11 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
                       const PopupMenuItem(
                         value: _MemberAction.promote,
                         child: Text('Make admin'),
+                      )
+                    else
+                      const PopupMenuItem(
+                        value: _MemberAction.demote,
+                        child: Text('Remove admin'),
                       ),
                     PopupMenuItem(
                       value: _MemberAction.remove,
@@ -458,6 +504,21 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
       ref.invalidate(groupMembersProvider(widget.group.id));
       if (mounted) showAppSnackBar(context, '${member.user.displayName} is now an admin.');
     } on ApiException catch (e) {
+      if (mounted) showAppSnackBar(context, e.message);
+    }
+  }
+
+  Future<void> _demoteMember(HouseMember member) async {
+    try {
+      await ref.read(groupsRepositoryProvider).demoteToMember(member.membershipId);
+      ref.invalidate(groupMembersProvider(widget.group.id));
+      if (mounted) {
+        showAppSnackBar(context, '${member.user.displayName} is no longer an admin.');
+      }
+    } on ApiException catch (e) {
+      // Covers the backend's 409 ("would leave the house with no admin")
+      // the same way every other action-failure here does — the message
+      // itself already explains what to do (promote someone else first).
       if (mounted) showAppSnackBar(context, e.message);
     }
   }

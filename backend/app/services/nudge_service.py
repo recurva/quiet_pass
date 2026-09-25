@@ -42,8 +42,14 @@ class QuietPulseDailyCapError(NudgeError):
         super().__init__(f"Quiet pulse daily cap of {daily_cap} reached.")
 
 
-def render_message(nudge_type: NudgeType, duration_minutes: int | None) -> str:
-    """The server-generated neutral wording. Callers never supply free text."""
+def render_message(
+    nudge_type: NudgeType, duration_minutes: int | None, custom_message: str | None = None
+) -> str:
+    """The wording for every preset is server-generated; CUSTOM is the one
+    deliberate exception, where it's whatever the sender typed
+    (NudgeSend.message — already required, stripped, and length-capped
+    by that model's own validator before this ever runs).
+    """
     if nudge_type == NudgeType.QUIET_PULSE:
         # duration_minutes is required for QUIET_PULSE at the HTTP layer
         # (NudgeSend's own validator), but this function has no such
@@ -56,6 +62,11 @@ def render_message(nudge_type: NudgeType, duration_minutes: int | None) -> str:
             if duration_minutes is not None
             else "A housemate asked for some quiet."
         )
+    if nudge_type == NudgeType.CUSTOM:
+        # Same reasoning as above: NudgeSend guarantees this is non-empty
+        # for the real HTTP path, but this function itself makes no
+        # assumption about its caller.
+        return custom_message or "A housemate sent a nudge."
     return _PRESET_MESSAGES[nudge_type]
 
 
@@ -163,6 +174,7 @@ async def send_nudge(
     sender_id: uuid.UUID,
     nudge_type: NudgeType,
     duration_minutes: int | None,
+    custom_message: str | None = None,
 ) -> NudgeRead:
     """Render the neutral message, apply quiet-pulse limits, publish to the
     group's WebSocket channel for anyone with the app open (step five), and
@@ -186,7 +198,7 @@ async def send_nudge(
         id=uuid.uuid4(),
         group_id=group_id,
         type=nudge_type,
-        message=render_message(nudge_type, duration_minutes),
+        message=render_message(nudge_type, duration_minutes, custom_message),
         duration_minutes=duration_minutes,
         created_at=datetime.now(timezone.utc),
     )

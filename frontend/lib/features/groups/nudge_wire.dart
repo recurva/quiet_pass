@@ -5,7 +5,8 @@ enum NudgeType {
   quietPulse('quiet_pulse'),
   packageArrived('package_arrived'),
   frontDoorUnlocked('front_door_unlocked'),
-  sinkFull('sink_full');
+  sinkFull('sink_full'),
+  custom('custom');
 
   const NudgeType(this.wireValue);
 
@@ -15,8 +16,12 @@ enum NudgeType {
       NudgeType.values.firstWhere((type) => type.wireValue == value);
 }
 
-/// Label + icon for the one-tap preset buttons. [NudgeType.quietPulse] isn't
-/// here — it gets its own sheet (duration picker), not a one-tap button.
+/// Matches CUSTOM_NUDGE_MESSAGE_MAX_LENGTH in app/schemas/nudge.py.
+const customNudgeMessageMaxLength = 140;
+
+/// Label + icon for the one-tap preset buttons. Neither [NudgeType.quietPulse]
+/// nor [NudgeType.custom] is here — each gets its own sheet (a duration
+/// picker, a text field) instead of a plain one-tap button.
 const presetNudgeTypes = [
   NudgeType.packageArrived,
   NudgeType.frontDoorUnlocked,
@@ -29,5 +34,6 @@ extension NudgePresetLabel on NudgeType {
         NudgeType.packageArrived => 'Package arrived',
         NudgeType.frontDoorUnlocked => 'Front door unlocked',
         NudgeType.sinkFull => 'Sink full',
+        NudgeType.custom => 'Custom',
       };
 }

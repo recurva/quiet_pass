@@ -95,6 +95,14 @@ class GroupsRepository {
     await _client.patch('/memberships/$membershipId/role?role=admin');
   }
 
+  /// PATCH /memberships/{id}/role: demotes an admin back to a plain
+  /// member. Rejected server-side (409) if this would leave the group
+  /// with no admin at all — the caller is expected to promote someone
+  /// else first in that case; see update_membership_role's docstring.
+  Future<void> demoteToMember(String membershipId) async {
+    await _client.patch('/memberships/$membershipId/role?role=member');
+  }
+
   /// DELETE /memberships/{id}: removes a membership row outright — used
   /// both for "leave this house" (the caller's own membership) and, for
   /// an admin, removing someone else. Same endpoint, same locked
@@ -136,14 +144,22 @@ class GroupsRepository {
   }
 
   /// Sends a nudge. [durationMinutes] is required for [NudgeType.quietPulse]
-  /// and must be omitted for every preset — the caller only ever supplies a
-  /// type, never free text; the server renders the actual wording.
-  Future<void> sendNudge(String groupId, NudgeType type, {int? durationMinutes}) async {
+  /// and must be omitted for every other type. [message] is required for
+  /// [NudgeType.custom] and must be omitted for every other type — the one
+  /// case where the caller supplies the actual wording instead of the
+  /// server rendering a fixed preset.
+  Future<void> sendNudge(
+    String groupId,
+    NudgeType type, {
+    int? durationMinutes,
+    String? message,
+  }) async {
     await _client.post(
       '/groups/$groupId/nudges',
       body: {
         'type': type.wireValue,
         if (durationMinutes != null) 'duration_minutes': durationMinutes,
+        if (message != null) 'message': message,
       },
     );
   }
