@@ -469,3 +469,37 @@ uvicorn app.main:app --reload
 ```
 
 Open http://127.0.0.1:8000/docs for the interactive API docs.
+
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+bash run_tests.sh
+```
+
+That's the one command: it brings up `docker-compose`'s Postgres/Redis
+if they aren't already running, waits for both to report healthy, then
+runs the full suite. Everything else — creating a fresh `quietpass_test`
+database, running the real Alembic migration chain against it (not just
+`Base.metadata.create_all`, since the EXCLUDE constraint's `btree_gist`
+extension only exists because a migration creates it), isolating each
+test in a rolled-back transaction — happens automatically inside
+`tests/conftest.py`. No real Firebase call is ever made: token
+verification is faked (`tests/conftest.py`'s `make_token`/`auth_headers`
+encode a fake decoded token directly), and Firebase Admin (account
+deletion confirmation, FCM push) is mocked per-test.
+
+Two tests — the reservation EXCLUDE constraint and the two-concurrent-
+departures admin-succession race — use a separate `concurrent_client`
+fixture instead of the default `client`: the default fixture binds every
+request in a test to one shared session/connection, which can't actually
+produce real contention between "simultaneous" requests. `concurrent_client`
+gives each request its own real connection from the pool instead, so
+`asyncio.gather`-ed requests through it are genuinely concurrent
+traffic, not sequential calls dressed up as a concurrency test.
+
+Database and Redis state from a `quietpass_test`/index-15 run doesn't
+touch local dev data on the default database/index — both are
+recreated (dropped and rebuilt) at the start of every run, deliberately:
+a leftover row from a previous crashed run must never be able to make a
+later run pass or fail for the wrong reason.

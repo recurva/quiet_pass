@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../core/api_client.dart';
 import '../../theme/app_colors.dart';
@@ -199,7 +201,28 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
             children: [
               Text(widget.group.name, style: context.text.titleLarge),
               SizedBox(height: 2.h),
-              Text('Invite code: ${widget.group.inviteCode}', style: context.text.bodySmall),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      'Invite code: ${widget.group.inviteCode}',
+                      style: context.text.bodySmall,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  SizedBox(width: Space.sm.w),
+                  GestureDetector(
+                    onTap: () => _copyInviteCode(context),
+                    child: Icon(Icons.copy_rounded, size: 15.r, color: c.ink3),
+                  ),
+                  SizedBox(width: Space.md.w),
+                  GestureDetector(
+                    onTap: () => _shareInviteCode(context),
+                    child: Icon(Icons.ios_share_rounded, size: 15.r, color: c.ink3),
+                  ),
+                ],
+              ),
             ],
           ),
         ),
@@ -233,6 +256,15 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
         ],
       ],
     );
+  }
+
+  Future<void> _copyInviteCode(BuildContext context) async {
+    await Clipboard.setData(ClipboardData(text: widget.group.inviteCode));
+    if (context.mounted) showAppSnackBar(context, 'Invite code copied.');
+  }
+
+  Future<void> _shareInviteCode(BuildContext context) async {
+    await Share.share('Join my house on QuietPass. Code: ${widget.group.inviteCode}');
   }
 
   Widget _yourStatusCard(BuildContext context, HouseStatus myEffectiveStatus) {
