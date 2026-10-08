@@ -10,6 +10,7 @@ from app.db.base import Base
 from app.models import (  # noqa: F401  (registers models on Base)
     Chore,
     DeviceToken,
+    DinnerHeadcount,
     Group,
     Membership,
     Reservation,

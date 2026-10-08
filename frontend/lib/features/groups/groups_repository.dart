@@ -1,5 +1,6 @@
 import '../../core/api_client.dart';
 import '../../theme/app_colors.dart';
+import 'dinner_wire.dart';
 import 'group_models.dart';
 import 'house_status_wire.dart';
 import 'nudge_wire.dart';
@@ -220,5 +221,21 @@ class GroupsRepository {
 
   Future<void> markChoreDone(String choreId) async {
     await _client.patch('/chores/$choreId/done');
+  }
+
+  /// Sets (or changes) the caller's own dinner response for today. Never
+  /// rejected for being after the 5pm cutoff — the cutoff is soft by
+  /// design, surfaced only as [DinnerSummary.cutoffPassed].
+  Future<DinnerResponse> setDinnerStatus(String groupId, DinnerStatus status) async {
+    final json = await _client.put(
+      '/groups/$groupId/dinner',
+      body: {'status': status.wireValue},
+    );
+    return DinnerResponse.fromJson(json as Map<String, dynamic>);
+  }
+
+  Future<DinnerSummary> fetchDinnerSummary(String groupId) async {
+    final json = await _client.get('/groups/$groupId/dinner');
+    return DinnerSummary.fromJson(json as Map<String, dynamic>);
   }
 }

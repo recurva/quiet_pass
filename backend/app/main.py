@@ -8,6 +8,7 @@ from app.api.routers import (
     auth,
     chores,
     device_tokens,
+    dinner,
     groups,
     memberships,
     nudges,
@@ -73,4 +74,5 @@ app.include_router(nudges.router, prefix="/api/v1")
 app.include_router(device_tokens.router, prefix="/api/v1")
 app.include_router(spaces.router, prefix="/api/v1")
 app.include_router(chores.router, prefix="/api/v1")
+app.include_router(dinner.router, prefix="/api/v1")
 app.include_router(ws.router, prefix="/api/v1")

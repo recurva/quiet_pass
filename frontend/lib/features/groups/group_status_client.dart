@@ -36,6 +36,7 @@ class GroupStatusClient {
   final _reservationsController = StreamController<AppReservation>.broadcast();
   final _memberListChangedController = StreamController<void>.broadcast();
   final _choreUpdatedController = StreamController<void>.broadcast();
+  final _dinnerUpdatedController = StreamController<void>.broadcast();
 
   /// Emits the full current `{userId: MemberStatus}` map on every change
   /// (including the initial snapshot).
@@ -64,6 +65,13 @@ class GroupStatusClient {
   /// Spaces screen already refetches the whole list on any reservation
   /// event anyway.
   Stream<void> get choreUpdated => _choreUpdatedController.stream;
+
+  /// Fires once per dinner-status change — any member of the house setting
+  /// or changing theirs — in real time. Same "just a signal, refetch" shape
+  /// as [choreUpdated]: a dinner_update event only carries the one member's
+  /// new status, not the recomputed home/staying-out tally, which only the
+  /// GET endpoint can produce correctly.
+  Stream<void> get dinnerUpdated => _dinnerUpdatedController.stream;
 
   Future<void> connect() async {
     if (_disposed) return;
@@ -142,6 +150,10 @@ class GroupStatusClient {
         if (!_choreUpdatedController.isClosed) {
           _choreUpdatedController.add(null);
         }
+      case 'dinner_update':
+        if (!_dinnerUpdatedController.isClosed) {
+          _dinnerUpdatedController.add(null);
+        }
     }
   }
 
@@ -161,5 +173,6 @@ class GroupStatusClient {
     _reservationsController.close();
     _memberListChangedController.close();
     _choreUpdatedController.close();
+    _dinnerUpdatedController.close();
   }
 }

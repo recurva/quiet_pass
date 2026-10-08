@@ -1,4 +1,5 @@
 import '../../theme/app_colors.dart';
+import 'dinner_wire.dart';
 import 'house_status_wire.dart';
 import 'nudge_wire.dart';
 
@@ -211,4 +212,53 @@ class AppChore {
   final String template;
   final DateTime dueAt;
   final bool done;
+}
+
+/// One member's dinner response for today. Mirrors the backend's
+/// `DinnerResponseRead`.
+class DinnerResponse {
+  const DinnerResponse({required this.userId, required this.status, required this.updatedAt});
+
+  factory DinnerResponse.fromJson(Map<String, dynamic> json) => DinnerResponse(
+        userId: json['user_id'] as String,
+        status: DinnerStatusWire.fromWire(json['status'] as String),
+        updatedAt: DateTime.parse(json['updated_at'] as String).toUtc(),
+      );
+
+  final String userId;
+  final DinnerStatus status;
+  final DateTime updatedAt;
+}
+
+/// Today's full dinner tally for a house. Mirrors the backend's
+/// `DinnerTallyRead`. [cutoffAt] and [cutoffPassed] are both house-local
+/// (fixed IST, see dinner_service.py) — [cutoffPassed] is purely
+/// informational, shown as "final" in the UI, and never blocks a change.
+class DinnerSummary {
+  const DinnerSummary({
+    required this.day,
+    required this.cutoffAt,
+    required this.cutoffPassed,
+    required this.homeCount,
+    required this.stayingOutCount,
+    required this.responses,
+  });
+
+  factory DinnerSummary.fromJson(Map<String, dynamic> json) => DinnerSummary(
+        day: json['day'] as String,
+        cutoffAt: DateTime.parse(json['cutoff_at'] as String).toUtc(),
+        cutoffPassed: json['cutoff_passed'] as bool,
+        homeCount: json['home_count'] as int,
+        stayingOutCount: json['staying_out_count'] as int,
+        responses: (json['responses'] as List<dynamic>)
+            .map((entry) => DinnerResponse.fromJson(entry as Map<String, dynamic>))
+            .toList(),
+      );
+
+  final String day;
+  final DateTime cutoffAt;
+  final bool cutoffPassed;
+  final int homeCount;
+  final int stayingOutCount;
+  final List<DinnerResponse> responses;
 }

@@ -146,3 +146,23 @@ final groupPendingNudgesProvider =
     NotifierProvider.family<PendingNudgesNotifier, List<AppNudge>, String>(
   PendingNudgesNotifier.new,
 );
+
+final groupDinnerSummaryProvider =
+    FutureProvider.autoDispose.family<DinnerSummary, String>((ref, groupId) {
+  return ref.watch(groupsRepositoryProvider).fetchDinnerSummary(groupId);
+});
+
+/// Refetches the dinner tally whenever a `dinner_update` event arrives.
+/// A per-event partial update isn't viable here — the event only carries
+/// one member's new status, not the recomputed home/staying-out counts —
+/// so, like chores' own "signal, then refetch" event, this just invalidates
+/// and lets the next GET recompute the tally server-side.
+final groupDinnerLiveRefreshProvider = Provider.autoDispose.family<void, String>((ref, groupId) {
+  ref.listen(groupDinnerEventsProvider(groupId), (previous, next) {
+    next.whenData((_) => ref.invalidate(groupDinnerSummaryProvider(groupId)));
+  });
+});
+
+final groupDinnerEventsProvider = StreamProvider.autoDispose.family<void, String>((ref, groupId) {
+  return ref.watch(groupStatusClientProvider(groupId)).dinnerUpdated;
+});

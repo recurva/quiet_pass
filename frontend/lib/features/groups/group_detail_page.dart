@@ -13,6 +13,7 @@ import '../../theme/dimens.dart';
 import '../../theme/status_widgets.dart';
 import '../../theme/theme_x.dart';
 import 'custom_nudge_sheet.dart';
+import 'dinner_wire.dart';
 import 'group_models.dart';
 import 'groups_providers.dart';
 import 'house_status_wire.dart';
@@ -40,6 +41,7 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
   NudgeType? _sendingPreset;
   bool _sendingQuietPulse = false;
   bool _handledOwnRemoval = false;
+  DinnerStatus? _pendingDinnerStatus;
 
   // Nothing server-side pushes an update at the exact moment a status's
   // TTL lapses (Redis just lets the key expire silently) — this timer is
@@ -66,7 +68,9 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
     final c = context.colors;
     final now = DateTime.now().toUtc();
     ref.watch(groupMembersLiveRefreshProvider(widget.group.id));
+    ref.watch(groupDinnerLiveRefreshProvider(widget.group.id));
     final membersAsync = ref.watch(groupMembersProvider(widget.group.id));
+    final dinnerAsync = ref.watch(groupDinnerSummaryProvider(widget.group.id));
     final statusesAsync = ref.watch(groupStatusesProvider(widget.group.id));
     final me = ref.watch(currentBackendUserProvider).valueOrNull;
     final statuses = statusesAsync.valueOrNull ?? const <String, MemberStatus>{};
@@ -126,6 +130,8 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
                     _header(context, myMembership),
                     SizedBox(height: Space.lg.h),
                     _yourStatusCard(context, myEffectiveStatus),
+                    SizedBox(height: Space.base.h),
+                    _dinnerCard(context, dinnerAsync, members, me?.id),
                     SizedBox(height: Space.base.h),
                     _nudgesCard(context),
                     SizedBox(height: Space.base.h),
@@ -317,6 +323,128 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
         ],
       ),
     );
+  }
+
+  /// Who's home for dinner tonight, per house. A daily, per-member toggle —
+  /// [DinnerSummary] always reflects today (house-local, fixed IST; see
+  /// dinner_service.py), so there's no explicit "reset" to trigger, the
+  /// same "absence is the default" shape [HouseStatus] already uses.
+  /// [cutoffPassed] is purely informational (shown as "Final"); tapping a
+  /// toggle after 5pm still goes through — the backend never rejects it.
+  Widget _dinnerCard(
+    BuildContext context,
+    AsyncValue<DinnerSummary> dinnerAsync,
+    List<HouseMember>? members,
+    String? myUserId,
+  ) {
+    final c = context.colors;
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(Space.base.w),
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(Radii.md.r),
+        border: Border.all(color: c.line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                'DINNER TONIGHT',
+                style: context.text.labelLarge?.copyWith(
+                  color: c.ink3,
+                  fontSize: 11.sp,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              const Spacer(),
+              if (dinnerAsync.valueOrNull?.cutoffPassed == true)
+                Text(
+                  'FINAL AT 5 PM',
+                  style: context.text.labelLarge?.copyWith(
+                    color: c.ink3,
+                    fontSize: 10.sp,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+            ],
+          ),
+          SizedBox(height: Space.md.h),
+          dinnerAsync.when(
+            loading: () => const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+            error: (error, _) => Text(
+              friendlyErrorMessage(error),
+              style: context.text.bodySmall?.copyWith(color: c.ink3),
+            ),
+            data: (summary) {
+              final myResponse =
+                  myUserId == null ? null : summary.responses.where((r) => r.userId == myUserId).firstOrNull;
+              final displayedStatus = _pendingDinnerStatus ?? myResponse?.status;
+              final homeNames = [
+                for (final response in summary.responses)
+                  if (response.status == DinnerStatus.home)
+                    _displayNameFor(response.userId, members, myUserId),
+              ];
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: Space.sm.w,
+                    runSpacing: Space.sm.h,
+                    children: [
+                      _DinnerChip(
+                        label: 'Home for dinner',
+                        selected: displayedStatus == DinnerStatus.home,
+                        onTap: () => _setDinnerStatus(DinnerStatus.home),
+                      ),
+                      _DinnerChip(
+                        label: 'Staying out',
+                        selected: displayedStatus == DinnerStatus.stayingOut,
+                        onTap: () => _setDinnerStatus(DinnerStatus.stayingOut),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: Space.md.h),
+                  Text(
+                    '${summary.homeCount} home · ${summary.stayingOutCount} out',
+                    style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+                  ),
+                  if (homeNames.isNotEmpty) ...[
+                    SizedBox(height: 2.h),
+                    Text(
+                      homeNames.join(', '),
+                      style: context.text.bodySmall?.copyWith(color: c.ink3),
+                    ),
+                  ],
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _displayNameFor(String userId, List<HouseMember>? members, String? myUserId) {
+    if (userId == myUserId) return 'You';
+    return members?.where((m) => m.user.id == userId).firstOrNull?.user.displayName ?? 'A housemate';
+  }
+
+  Future<void> _setDinnerStatus(DinnerStatus status) async {
+    setState(() => _pendingDinnerStatus = status);
+    try {
+      await ref.read(groupsRepositoryProvider).setDinnerStatus(widget.group.id, status);
+      ref.invalidate(groupDinnerSummaryProvider(widget.group.id));
+    } on ApiException catch (e) {
+      if (mounted) showAppSnackBar(context, e.message);
+    } finally {
+      if (mounted) setState(() => _pendingDinnerStatus = null);
+    }
   }
 
   Widget _nudgesCard(BuildContext context) {
@@ -675,6 +803,37 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
     } finally {
       if (mounted) setState(() => _pendingStatus = null);
     }
+  }
+}
+
+class _DinnerChip extends StatelessWidget {
+  const _DinnerChip({required this.label, required this.selected, required this.onTap});
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.sm.h),
+        decoration: BoxDecoration(
+          color: selected ? c.accentTint : c.surface2,
+          borderRadius: BorderRadius.circular(Radii.pill.r),
+          border: Border.all(color: selected ? c.accentRing : c.line2),
+        ),
+        child: Text(
+          label,
+          style: context.text.bodyMedium?.copyWith(
+            color: selected ? c.accent : c.ink2,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+          ),
+        ),
+      ),
+    );
   }
 }
 
