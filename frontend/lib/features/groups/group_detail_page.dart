@@ -12,6 +12,7 @@ import '../../theme/app_snackbar.dart';
 import '../../theme/dimens.dart';
 import '../../theme/status_widgets.dart';
 import '../../theme/theme_x.dart';
+import 'agreements_page.dart';
 import 'custom_nudge_sheet.dart';
 import 'dinner_wire.dart';
 import 'group_models.dart';
@@ -20,6 +21,7 @@ import 'house_status_wire.dart';
 import 'nudge_wire.dart';
 import 'quiet_pulse_sheet.dart';
 import 'spaces_page.dart';
+import 'wifi_page.dart';
 
 enum _MemberAction { promote, demote, remove }
 
@@ -186,80 +188,152 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
     );
   }
 
+  /// Identity (back + name + actions) on its own row, the invite code
+  /// moved to a separate pill below with its own breathing room — these
+  /// used to be crammed into a single row (name, invite code, copy, share,
+  /// and both action icons all fighting for the same line), which read as
+  /// rushed/cluttered, especially on narrower phones.
   Widget _header(BuildContext context, HouseMember? myMembership) {
     final c = context.colors;
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        IconButton(
-          onPressed: () => Navigator.of(context).pop(),
-          style: IconButton.styleFrom(
-            backgroundColor: c.surface2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(Radii.sm.r),
+        Row(
+          children: [
+            IconButton(
+              onPressed: () => Navigator.of(context).pop(),
+              style: IconButton.styleFrom(
+                backgroundColor: c.surface2,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sm.r)),
+              ),
+              icon: Icon(Icons.arrow_back, color: c.ink2, size: 20.r),
             ),
-          ),
-          icon: Icon(Icons.arrow_back, color: c.ink2, size: 20.r),
-        ),
-        SizedBox(width: Space.md.w),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(widget.group.name, style: context.text.titleLarge),
-              SizedBox(height: 2.h),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Flexible(
-                    child: Text(
-                      'Invite code: ${widget.group.inviteCode}',
-                      style: context.text.bodySmall,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  SizedBox(width: Space.sm.w),
-                  GestureDetector(
-                    onTap: () => _copyInviteCode(context),
-                    child: Icon(Icons.copy_rounded, size: 15.r, color: c.ink3),
-                  ),
-                  SizedBox(width: Space.md.w),
-                  GestureDetector(
-                    onTap: () => _shareInviteCode(context),
-                    child: Icon(Icons.ios_share_rounded, size: 15.r, color: c.ink3),
-                  ),
-                ],
+            SizedBox(width: Space.md.w),
+            Expanded(
+              child: Text(
+                widget.group.name,
+                style: context.text.titleLarge,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (myMembership != null) ...[
+              SizedBox(width: Space.sm.w),
+              IconButton(
+                onPressed: () => _leaveGroup(myMembership.membershipId),
+                style: IconButton.styleFrom(
+                  backgroundColor: c.surface2,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sm.r)),
+                ),
+                icon: Icon(Icons.logout, color: c.call.solid, size: 20.r),
               ),
             ],
-          ),
+          ],
         ),
-        SizedBox(width: Space.sm.w),
-        IconButton(
-          onPressed: () => Navigator.of(context).push(
+        SizedBox(height: Space.sm.h),
+        Padding(
+          padding: EdgeInsets.only(left: 44.r),
+          child: _inviteCodePill(context),
+        ),
+        SizedBox(height: Space.sm.h),
+        Padding(
+          padding: EdgeInsets.only(left: 44.r),
+          child: _featuresRow(context, myMembership),
+        ),
+      ],
+    );
+  }
+
+  /// Entry points to this house's standalone feature screens — kept off
+  /// the identity row above (back/name/leave) on purpose, the same reason
+  /// the invite code moved to its own pill: cramming every action icon
+  /// into one line reads as rushed, and this row only grows as more
+  /// features (agreements here, Wi-Fi/QR next) get added.
+  Widget _featuresRow(BuildContext context, HouseMember? myMembership) {
+    final isAdmin = myMembership?.role == 'admin';
+    return Wrap(
+      spacing: Space.sm.w,
+      runSpacing: Space.sm.h,
+      children: [
+        _FeatureIconButton(
+          icon: Icons.meeting_room_outlined,
+          label: 'Spaces',
+          onTap: () => Navigator.of(context).push(
             MaterialPageRoute(
               builder: (_) => SpacesPage(groupId: widget.group.id, groupName: widget.group.name),
             ),
           ),
-          style: IconButton.styleFrom(
-            backgroundColor: c.surface2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(Radii.sm.r),
-            ),
-          ),
-          icon: Icon(Icons.meeting_room_outlined, color: c.ink2, size: 20.r),
         ),
-        if (myMembership != null) ...[
-          SizedBox(width: Space.sm.w),
-          IconButton(
-            onPressed: () => _leaveGroup(myMembership.membershipId),
-            style: IconButton.styleFrom(
-              backgroundColor: c.surface2,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(Radii.sm.r),
+        _FeatureIconButton(
+          icon: Icons.push_pin_outlined,
+          label: 'Agreements',
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => AgreementsPage(
+                groupId: widget.group.id,
+                groupName: widget.group.name,
+                isAdmin: isAdmin,
               ),
             ),
-            icon: Icon(Icons.logout, color: c.call.solid, size: 20.r),
           ),
-        ],
+        ),
+        _FeatureIconButton(
+          icon: Icons.qr_code_rounded,
+          label: 'Guest Wi-Fi',
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => WifiPage(
+                groupId: widget.group.id,
+                groupName: widget.group.name,
+                isAdmin: isAdmin,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _inviteCodePill(BuildContext context) {
+    final c = context.colors;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        GestureDetector(
+          onTap: () => _copyInviteCode(context),
+          child: Container(
+            padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.xs.h),
+            decoration: BoxDecoration(
+              color: c.surface2,
+              borderRadius: BorderRadius.circular(Radii.pill.r),
+              border: Border.all(color: c.line2),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  widget.group.inviteCode,
+                  style: context.text.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+                ),
+                SizedBox(width: Space.xs.w),
+                Icon(Icons.copy_rounded, size: 14.r, color: c.ink3),
+              ],
+            ),
+          ),
+        ),
+        SizedBox(width: Space.sm.w),
+        GestureDetector(
+          onTap: () => _shareInviteCode(context),
+          child: Container(
+            padding: EdgeInsets.all(Space.xs.w),
+            decoration: BoxDecoration(
+              color: c.surface2,
+              shape: BoxShape.circle,
+              border: Border.all(color: c.line2),
+            ),
+            child: Icon(Icons.ios_share_rounded, size: 14.r, color: c.ink3),
+          ),
+        ),
       ],
     );
   }
@@ -439,7 +513,13 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
     setState(() => _pendingDinnerStatus = status);
     try {
       await ref.read(groupsRepositoryProvider).setDinnerStatus(widget.group.id, status);
-      ref.invalidate(groupDinnerSummaryProvider(widget.group.id));
+      // Awaited, not fire-and-forget: clearing _pendingDinnerStatus before
+      // the refetch actually lands meant the card briefly fell back to the
+      // *old* cached summary (still showing the previous status) for one
+      // frame before the new data arrived — a visible flicker/"swap" on
+      // every tap. Waiting here means the real data already matches the
+      // optimistic choice by the time the optimistic state is cleared.
+      final _ = await ref.refresh(groupDinnerSummaryProvider(widget.group.id).future);
     } on ApiException catch (e) {
       if (mounted) showAppSnackBar(context, e.message);
     } finally {
@@ -803,6 +883,38 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
     } finally {
       if (mounted) setState(() => _pendingStatus = null);
     }
+  }
+}
+
+class _FeatureIconButton extends StatelessWidget {
+  const _FeatureIconButton({required this.icon, required this.label, required this.onTap});
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.xs.h),
+        decoration: BoxDecoration(
+          color: c.surface2,
+          borderRadius: BorderRadius.circular(Radii.pill.r),
+          border: Border.all(color: c.line2),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 15.r, color: c.ink2),
+            SizedBox(width: Space.xs.w),
+            Text(label, style: context.text.bodySmall?.copyWith(color: c.ink2)),
+          ],
+        ),
+      ),
+    );
   }
 }
 

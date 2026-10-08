@@ -166,3 +166,33 @@ final groupDinnerLiveRefreshProvider = Provider.autoDispose.family<void, String>
 final groupDinnerEventsProvider = StreamProvider.autoDispose.family<void, String>((ref, groupId) {
   return ref.watch(groupStatusClientProvider(groupId)).dinnerUpdated;
 });
+
+final groupAgreementsProvider =
+    FutureProvider.autoDispose.family<List<AppAgreement>, String>((ref, groupId) {
+  return ref.watch(groupsRepositoryProvider).fetchAgreements(groupId);
+});
+
+final groupAgreementsLiveRefreshProvider = Provider.autoDispose.family<void, String>((ref, groupId) {
+  ref.listen(groupAgreementEventsProvider(groupId), (previous, next) {
+    next.whenData((_) => ref.invalidate(groupAgreementsProvider(groupId)));
+  });
+});
+
+final groupAgreementEventsProvider = StreamProvider.autoDispose.family<void, String>((ref, groupId) {
+  return ref.watch(groupStatusClientProvider(groupId)).agreementUpdated;
+});
+
+final groupWifiCredentialsProvider =
+    FutureProvider.autoDispose.family<WifiCredentials?, String>((ref, groupId) {
+  return ref.watch(groupsRepositoryProvider).fetchWifiCredentials(groupId);
+});
+
+final groupWifiLiveRefreshProvider = Provider.autoDispose.family<void, String>((ref, groupId) {
+  ref.listen(groupWifiEventsProvider(groupId), (previous, next) {
+    next.whenData((_) => ref.invalidate(groupWifiCredentialsProvider(groupId)));
+  });
+});
+
+final groupWifiEventsProvider = StreamProvider.autoDispose.family<void, String>((ref, groupId) {
+  return ref.watch(groupStatusClientProvider(groupId)).wifiUpdated;
+});

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from app.core.config import settings
 from app.db.base import Base
 from app.models import (  # noqa: F401  (registers models on Base)
+    Agreement,
     Chore,
     DeviceToken,
     DinnerHeadcount,
@@ -16,6 +17,7 @@ from app.models import (  # noqa: F401  (registers models on Base)
     Reservation,
     Space,
     User,
+    WifiCredentials,
 )
 
 config = context.config

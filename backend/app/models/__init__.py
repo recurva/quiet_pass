@@ -1,3 +1,4 @@
+from app.models.agreement import Agreement
 from app.models.chore import Chore
 from app.models.deleted_firebase_uid import DeletedFirebaseUid
 from app.models.device_token import DeviceToken
@@ -7,8 +8,10 @@ from app.models.membership import Membership, MembershipRole
 from app.models.reservation import Reservation
 from app.models.space import Space
 from app.models.user import User
+from app.models.wifi_credentials import WifiCredentials
 
 __all__ = [
+    "Agreement",
     "Chore",
     "DeletedFirebaseUid",
     "DeviceToken",
@@ -20,4 +23,5 @@ __all__ = [
     "Reservation",
     "Space",
     "User",
+    "WifiCredentials",
 ]

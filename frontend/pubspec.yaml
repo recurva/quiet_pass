@@ -47,6 +47,9 @@ dependencies:
   # Native share sheet, for sharing a house's invite code to WhatsApp/etc.
   share_plus: ^10.1.3
 
+  # Renders the in-app Wi-Fi guest QR code
+  qr_flutter: ^4.1.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

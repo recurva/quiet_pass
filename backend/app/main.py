@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.routers import (
+    agreements,
     auth,
     chores,
     device_tokens,
@@ -15,6 +16,7 @@ from app.api.routers import (
     spaces,
     status as status_router,
     users,
+    wifi,
     ws,
 )
 from app.core.config import settings
@@ -75,4 +77,6 @@ app.include_router(device_tokens.router, prefix="/api/v1")
 app.include_router(spaces.router, prefix="/api/v1")
 app.include_router(chores.router, prefix="/api/v1")
 app.include_router(dinner.router, prefix="/api/v1")
+app.include_router(agreements.router, prefix="/api/v1")
+app.include_router(wifi.router, prefix="/api/v1")
 app.include_router(ws.router, prefix="/api/v1")

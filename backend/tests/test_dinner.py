@@ -3,6 +3,7 @@ house-local date, not a cleanup job), and the soft cutoff's pure
 boundary logic.
 """
 
+import asyncio
 from datetime import date, datetime, timedelta, timezone
 
 from app.services.dinner_service import cutoff_at_utc, is_cutoff_passed
@@ -172,6 +173,44 @@ async def test_invalid_status_value_is_rejected(client):
         json={"status": "maybe"},
     )
     assert response.status_code == 422
+
+
+async def test_concurrent_status_changes_from_the_same_user_never_duplicate_the_row(concurrent_client):
+    """set_dinner_status's ON CONFLICT upsert is the one thing standing
+    between two near-simultaneous requests (e.g. a flaky double-tap, or
+    two of the same account's devices) and a duplicate row that would
+    violate uq_dinner_headcount_group_user_day — this only actually
+    proves the atomicity if both requests are genuinely concurrent over
+    independent connections, not two sequential calls.
+    """
+    client = concurrent_client
+    await _sign_in(client, "uid-di-11", "+917777770011", "A")
+    group = await _create_group(client, "uid-di-11", "+917777770011")
+
+    results = await asyncio.gather(
+        client.put(
+            f"/api/v1/groups/{group['id']}/dinner",
+            headers=auth_headers("uid-di-11", "+917777770011"),
+            json={"status": "home"},
+        ),
+        client.put(
+            f"/api/v1/groups/{group['id']}/dinner",
+            headers=auth_headers("uid-di-11", "+917777770011"),
+            json={"status": "staying_out"},
+        ),
+        return_exceptions=True,
+    )
+    statuses = sorted(r.status_code for r in results if not isinstance(r, Exception))
+    assert statuses == [200, 200], (
+        f"both concurrent writes should succeed (upsert, not insert-fails-on-conflict), "
+        f"got {statuses} (exceptions: {[r for r in results if isinstance(r, Exception)]})"
+    )
+
+    tally = (
+        await client.get(f"/api/v1/groups/{group['id']}/dinner", headers=auth_headers("uid-di-11", "+917777770011"))
+    ).json()
+    assert len(tally["responses"]) == 1  # exactly one row, whichever write landed last
+    assert tally["home_count"] + tally["staying_out_count"] == 1
 
 
 def test_cutoff_boundary_is_exactly_5pm_ist():

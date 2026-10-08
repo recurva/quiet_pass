@@ -238,4 +238,61 @@ class GroupsRepository {
     final json = await _client.get('/groups/$groupId/dinner');
     return DinnerSummary.fromJson(json as Map<String, dynamic>);
   }
+
+  Future<List<AppAgreement>> fetchAgreements(String groupId) async {
+    final json = await _client.get('/groups/$groupId/agreements');
+    return (json as List<dynamic>)
+        .map((entry) => AppAgreement.fromJson(entry as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// POST /groups/{id}/agreements: admin-only server-side (403 for a plain
+  /// member) — the UI only ever shows the "add" action to one.
+  Future<AppAgreement> createAgreement(String groupId, String title, String content) async {
+    final json = await _client.post(
+      '/groups/$groupId/agreements',
+      body: {'title': title, 'content': content},
+    );
+    return AppAgreement.fromJson(json as Map<String, dynamic>);
+  }
+
+  Future<AppAgreement> updateAgreement(
+    String groupId,
+    String agreementId,
+    String title,
+    String content,
+  ) async {
+    final json = await _client.patch(
+      '/groups/$groupId/agreements/$agreementId',
+      body: {'title': title, 'content': content},
+    );
+    return AppAgreement.fromJson(json as Map<String, dynamic>);
+  }
+
+  Future<void> deleteAgreement(String groupId, String agreementId) async {
+    await _client.delete('/groups/$groupId/agreements/$agreementId');
+  }
+
+  /// Returns null if this house hasn't set its Wi-Fi details yet (backend
+  /// 404) rather than throwing — "not configured" is an expected, common
+  /// state here (every house starts this way), not an error condition the
+  /// UI should show as a failure.
+  Future<WifiCredentials?> fetchWifiCredentials(String groupId) async {
+    try {
+      final json = await _client.get('/groups/$groupId/wifi');
+      return WifiCredentials.fromJson(json as Map<String, dynamic>);
+    } on ApiException catch (e) {
+      if (e.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  /// PUT /groups/{id}/wifi: admin-only server-side.
+  Future<WifiCredentials> setWifiCredentials(String groupId, String ssid, String password) async {
+    final json = await _client.put(
+      '/groups/$groupId/wifi',
+      body: {'ssid': ssid, 'password': password},
+    );
+    return WifiCredentials.fromJson(json as Map<String, dynamic>);
+  }
 }

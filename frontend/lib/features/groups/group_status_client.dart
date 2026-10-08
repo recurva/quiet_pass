@@ -37,6 +37,8 @@ class GroupStatusClient {
   final _memberListChangedController = StreamController<void>.broadcast();
   final _choreUpdatedController = StreamController<void>.broadcast();
   final _dinnerUpdatedController = StreamController<void>.broadcast();
+  final _agreementUpdatedController = StreamController<void>.broadcast();
+  final _wifiUpdatedController = StreamController<void>.broadcast();
 
   /// Emits the full current `{userId: MemberStatus}` map on every change
   /// (including the initial snapshot).
@@ -72,6 +74,15 @@ class GroupStatusClient {
   /// new status, not the recomputed home/staying-out tally, which only the
   /// GET endpoint can produce correctly.
   Stream<void> get dinnerUpdated => _dinnerUpdatedController.stream;
+
+  /// Fires once per agreements-board change — an admin adding, editing, or
+  /// removing a pinned item. Same "just a signal, refetch" shape as
+  /// [dinnerUpdated]/[choreUpdated].
+  Stream<void> get agreementUpdated => _agreementUpdatedController.stream;
+
+  /// Fires once per Wi-Fi details change — an admin updating the SSID or
+  /// password. Same "just a signal, refetch" shape as [agreementUpdated].
+  Stream<void> get wifiUpdated => _wifiUpdatedController.stream;
 
   Future<void> connect() async {
     if (_disposed) return;
@@ -154,6 +165,14 @@ class GroupStatusClient {
         if (!_dinnerUpdatedController.isClosed) {
           _dinnerUpdatedController.add(null);
         }
+      case 'agreement_update':
+        if (!_agreementUpdatedController.isClosed) {
+          _agreementUpdatedController.add(null);
+        }
+      case 'wifi_update':
+        if (!_wifiUpdatedController.isClosed) {
+          _wifiUpdatedController.add(null);
+        }
     }
   }
 
@@ -174,5 +193,7 @@ class GroupStatusClient {
     _memberListChangedController.close();
     _choreUpdatedController.close();
     _dinnerUpdatedController.close();
+    _agreementUpdatedController.close();
+    _wifiUpdatedController.close();
   }
 }

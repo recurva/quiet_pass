@@ -262,3 +262,55 @@ class DinnerSummary {
   final int stayingOutCount;
   final List<DinnerResponse> responses;
 }
+
+/// One pinned item on a house's agreements board — a rule, the trash
+/// schedule, the landlord's contact, a free-text note. Mirrors the
+/// backend's `AgreementRead`. Admin-only to create/edit/remove, viewable
+/// by any member — enforced server-side; this is just the data shape.
+class AppAgreement {
+  const AppAgreement({
+    required this.id,
+    required this.groupId,
+    required this.createdBy,
+    required this.title,
+    required this.content,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  factory AppAgreement.fromJson(Map<String, dynamic> json) => AppAgreement(
+        id: json['id'] as String,
+        groupId: json['group_id'] as String,
+        createdBy: json['created_by'] as String,
+        title: json['title'] as String,
+        content: json['content'] as String,
+        createdAt: DateTime.parse(json['created_at'] as String).toUtc(),
+        updatedAt: DateTime.parse(json['updated_at'] as String).toUtc(),
+      );
+
+  final String id;
+  final String groupId;
+  final String createdBy;
+  final String title;
+  final String content;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+}
+
+/// A house's Wi-Fi SSID/password, used to render the in-app guest QR.
+/// Mirrors the backend's `WifiCredentialsRead`. Admin-set, member-visible
+/// (any member can pull up the QR to show a guest, not just the admin who
+/// configured it) — see wifi_service.py.
+class WifiCredentials {
+  const WifiCredentials({required this.ssid, required this.password, required this.updatedAt});
+
+  factory WifiCredentials.fromJson(Map<String, dynamic> json) => WifiCredentials(
+        ssid: json['ssid'] as String,
+        password: json['password'] as String,
+        updatedAt: DateTime.parse(json['updated_at'] as String).toUtc(),
+      );
+
+  final String ssid;
+  final String password;
+  final DateTime updatedAt;
+}
