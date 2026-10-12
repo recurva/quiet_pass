@@ -69,6 +69,41 @@ class ApiClient {
     };
   }
 
+  /// Same token resolution as [_authHeaders], but without forcing
+  /// `Content-Type: application/json` — [http.MultipartRequest] computes
+  /// its own `Content-Type` (with the multipart boundary) when sent, and
+  /// a manually-set JSON content type here would just be overwritten.
+  Future<Map<String, String>> _authHeaderOnly() async {
+    final user = _auth.currentUser;
+    if (user == null) {
+      throw StateError('No signed-in user to authorize the request.');
+    }
+    final token = await user.getIdToken();
+    if (token == null) {
+      throw StateError('Firebase returned no ID token for the signed-in user.');
+    }
+    await _tokenStore.save(token);
+    return {'Authorization': 'Bearer $token'};
+  }
+
+  /// Multipart file upload (e.g. PUT /users/me/avatar). [fieldName] must
+  /// match the backend's `File(...)` parameter name exactly.
+  Future<dynamic> putMultipartFile(
+    String path, {
+    required String fieldName,
+    required List<int> bytes,
+    required String filename,
+  }) {
+    return _guarded(() async {
+      final request = http.MultipartRequest('PUT', _uri(path))
+        ..headers.addAll(await _authHeaderOnly())
+        ..files.add(http.MultipartFile.fromBytes(fieldName, bytes, filename: filename));
+      final streamed = await _http.send(request);
+      final response = await http.Response.fromStream(streamed);
+      return _decode(response);
+    });
+  }
+
   Future<dynamic> get(String path) {
     return _guarded(() async {
       final response = await _http.get(_uri(path), headers: await _authHeaders());

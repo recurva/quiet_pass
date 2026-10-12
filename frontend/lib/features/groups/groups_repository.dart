@@ -355,4 +355,24 @@ class GroupsRepository {
     );
     return UrgentAccessRequest.fromJson(json as Map<String, dynamic>);
   }
+
+  /// Uploads (or replaces) the caller's own profile photo. Server-side
+  /// resize/compress/EXIF-strip — this just sends the raw picked bytes.
+  Future<AppUser> uploadAvatar(List<int> bytes, String filename) async {
+    final json = await _client.putMultipartFile(
+      '/users/me/avatar',
+      fieldName: 'file',
+      bytes: bytes,
+      filename: filename,
+    );
+    return AppUser.fromJson(json as Map<String, dynamic>);
+  }
+
+  /// Clears the caller's avatar. Returns void, same shape as every other
+  /// delete-based repository method here (e.g. [cancelReservation]) — the
+  /// caller invalidates [currentBackendUserProvider] afterward to pick up
+  /// the now-null avatar_url.
+  Future<void> removeAvatar() async {
+    await _client.delete('/users/me/avatar');
+  }
 }

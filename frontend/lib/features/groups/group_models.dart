@@ -9,17 +9,23 @@ class AppUser {
     required this.id,
     required this.phoneNumber,
     required this.displayName,
+    this.avatarUrl,
   });
 
   factory AppUser.fromJson(Map<String, dynamic> json) => AppUser(
         id: json['id'] as String,
         phoneNumber: json['phone_number'] as String,
         displayName: json['display_name'] as String,
+        avatarUrl: json['avatar_url'] as String?,
       );
 
   final String id;
   final String phoneNumber;
   final String displayName;
+  /// Null when no photo is set (the common case) — render a
+  /// coloured-initial fallback from [displayName] in that case, not an
+  /// error or loading state.
+  final String? avatarUrl;
 }
 
 class AppGroup {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../core/api_client.dart';
 import '../../theme/app_snackbar.dart';
@@ -38,7 +39,11 @@ class ProfilePage extends ConsumerWidget {
                   friendlyErrorMessage(error),
                   style: context.text.bodySmall?.copyWith(color: c.ink3),
                 ),
-                data: (user) => _AccountCard(name: user.displayName, phone: user.phoneNumber),
+                data: (user) => _AccountCard(
+                  name: user.displayName,
+                  phone: user.phoneNumber,
+                  avatarUrl: user.avatarUrl,
+                ),
               ),
               SizedBox(height: Space.base.h),
               const _ThemeCard(),
@@ -70,14 +75,22 @@ class ProfilePage extends ConsumerWidget {
   }
 }
 
-class _AccountCard extends ConsumerWidget {
-  const _AccountCard({required this.name, required this.phone});
+class _AccountCard extends ConsumerStatefulWidget {
+  const _AccountCard({required this.name, required this.phone, required this.avatarUrl});
 
   final String name;
   final String phone;
+  final String? avatarUrl;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_AccountCard> createState() => _AccountCardState();
+}
+
+class _AccountCardState extends ConsumerState<_AccountCard> {
+  bool _busy = false;
+
+  @override
+  Widget build(BuildContext context) {
     final c = context.colors;
     return Container(
       width: double.infinity,
@@ -97,11 +110,11 @@ class _AccountCard extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      name,
+                      widget.name,
                       style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
                     ),
                     SizedBox(height: 2.h),
-                    Text(phone, style: context.text.bodySmall),
+                    Text(widget.phone, style: context.text.bodySmall),
                   ],
                 ),
               ),
@@ -115,13 +128,90 @@ class _AccountCard extends ConsumerWidget {
               ),
             ],
           ),
+          SizedBox(height: Space.md.h),
+          // TEMPORARY, Stage 1 only: plain functional avatar upload/remove
+          // so the backend endpoint can be tested on device before any
+          // redesign styling exists. Replaced entirely by the real Avatar
+          // widget in Stage 2/3 — not meant to match the mockups.
+          Text(
+            widget.avatarUrl ?? '(no avatar set)',
+            style: context.text.bodySmall?.copyWith(color: c.ink3),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          SizedBox(height: Space.sm.h),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _busy ? null : _pickAndUpload,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: c.ink2,
+                    side: BorderSide(color: c.line2),
+                    padding: EdgeInsets.symmetric(vertical: Space.sm.h),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sm.r)),
+                  ),
+                  child: _busy
+                      ? SizedBox(
+                          width: 16.r,
+                          height: 16.r,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: c.ink2),
+                        )
+                      : const Text('Upload photo (test)'),
+                ),
+              ),
+              if (widget.avatarUrl != null) ...[
+                SizedBox(width: Space.sm.w),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _busy ? null : _remove,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: c.call.solid,
+                      side: BorderSide(color: c.call.solid),
+                      padding: EdgeInsets.symmetric(vertical: Space.sm.h),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sm.r)),
+                    ),
+                    child: const Text('Remove'),
+                  ),
+                ),
+              ],
+            ],
+          ),
         ],
       ),
     );
   }
 
   Future<void> _editName(BuildContext context, WidgetRef ref) async {
-    await showEditNameSheet(context, initialValue: name);
+    await showEditNameSheet(context, initialValue: widget.name);
+  }
+
+  Future<void> _pickAndUpload() async {
+    final picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 90);
+    if (picked == null || !mounted) return;
+
+    setState(() => _busy = true);
+    try {
+      final bytes = await picked.readAsBytes();
+      await ref.read(groupsRepositoryProvider).uploadAvatar(bytes, picked.name);
+      ref.invalidate(currentBackendUserProvider);
+    } on ApiException catch (e) {
+      if (mounted) showAppSnackBar(context, e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _remove() async {
+    setState(() => _busy = true);
+    try {
+      await ref.read(groupsRepositoryProvider).removeAvatar();
+      ref.invalidate(currentBackendUserProvider);
+    } on ApiException catch (e) {
+      if (mounted) showAppSnackBar(context, e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 }
 

@@ -50,6 +50,9 @@ dependencies:
   # Renders the in-app Wi-Fi guest QR code
   qr_flutter: ^4.1.0
 
+  # Picking a photo from the gallery/camera for avatar upload
+  image_picker: ^1.1.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
