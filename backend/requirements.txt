@@ -30,3 +30,8 @@ structlog==24.4.0
 
 # --- Dev / migrations tooling (psycopg used only by Alembic's offline/sync needs if required) ---
 python-dotenv==1.0.1
+
+# --- Avatar upload: resize/compress/strip EXIF, then store in GCS ---
+google-cloud-storage==3.4.1
+Pillow==11.3.0
+python-multipart==0.0.20

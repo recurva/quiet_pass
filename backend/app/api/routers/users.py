@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +12,7 @@ from app.models.group import Group
 from app.models.membership import Membership
 from app.models.user import User
 from app.schemas.user import UserRead, UserUpdate
-from app.services import firebase_auth_admin_service
+from app.services import avatar_service, firebase_auth_admin_service
 from app.services.membership_service import rebalance_admin_before_departure
 from app.services.status_service import clear_status, publish_group_event
 
@@ -43,6 +43,51 @@ async def update_current_user(
     await db.commit()
     await db.refresh(current_user)
     logger.info("user.display_name_updated", user_id=str(current_user.id))
+    return current_user
+
+
+@router.put("/me/avatar", response_model=UserRead)
+async def upload_avatar(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Uploads (or replaces) the caller's own profile photo. Only ever
+    the caller's own — there's no "set someone else's avatar" path,
+    unlike display_name's own self-only PATCH which this mirrors.
+    """
+    raw = await file.read()
+    try:
+        url = avatar_service.upload_avatar(current_user.id, raw, file.content_type)
+    except avatar_service.AvatarTooLargeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=str(exc)
+        ) from exc
+    except avatar_service.AvatarInvalidImageError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    current_user.avatar_url = url
+    await db.commit()
+    await db.refresh(current_user)
+    logger.info("user.avatar_updated", user_id=str(current_user.id))
+    return current_user
+
+
+@router.delete("/me/avatar", response_model=UserRead)
+async def remove_avatar(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Clears the caller's avatar, reverting them to the coloured-initial
+    fallback everywhere they're shown. The GCS object delete is
+    best-effort (see avatar_service.delete_avatar); clearing avatar_url
+    here is the part that actually matters and always happens.
+    """
+    avatar_service.delete_avatar(current_user.id)
+    current_user.avatar_url = None
+    await db.commit()
+    await db.refresh(current_user)
+    logger.info("user.avatar_removed", user_id=str(current_user.id))
     return current_user
 
 

@@ -37,6 +37,11 @@ class UserRead(UserBase):
 
     id: uuid.UUID
     created_at: datetime
+    # Null when no photo is set (the common case) — the client renders a
+    # coloured-initial fallback from display_name in that case, not an
+    # error or loading state. A new, additive field; every existing
+    # consumer of this schema keeps working unchanged.
+    avatar_url: str | None = None
 
 
 class UserUpdate(BaseModel):

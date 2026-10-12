@@ -45,7 +45,7 @@ from app.core.firebase import TokenExpiredError, TokenInvalidError  # noqa: E402
 from app.db.session import get_db  # noqa: E402
 from app.db.redis import get_redis  # noqa: E402
 from app.main import app  # noqa: E402
-from app.services import firebase_auth_admin_service, push_service  # noqa: E402
+from app.services import avatar_service, firebase_auth_admin_service, push_service  # noqa: E402
 
 
 def _run_alembic_upgrade() -> None:
@@ -208,6 +208,54 @@ def _fake_push(monkeypatch):
     mock = AsyncMock(return_value=PushSendResult())
     monkeypatch.setattr(push_service, "send_to_tokens", mock)
     return mock
+
+
+class _FakeBlob:
+    def __init__(self, store: dict, name: str):
+        self._store = store
+        self._name = name
+
+    def upload_from_string(self, data: bytes, content_type: str) -> None:
+        self._store[self._name] = (data, content_type)
+
+    def delete(self) -> None:
+        self._store.pop(self._name, None)
+
+
+class _FakeBucket:
+    def __init__(self, store: dict):
+        self._store = store
+
+    def blob(self, name: str) -> _FakeBlob:
+        return _FakeBlob(self._store, name)
+
+
+class _FakeStorageClient:
+    """In-memory stand-in for google.cloud.storage.Client — no real GCS
+    call is ever made in tests. `uploaded` is keyed by object name
+    ("avatars/{user_id}.jpg") and holds the actual processed JPEG bytes
+    avatar_service produced, so a test can assert the real resize/compress
+    logic ran, not just that *something* was "uploaded."
+    """
+
+    def __init__(self):
+        self.uploaded: dict[str, tuple[bytes, str]] = {}
+
+    def bucket(self, _name: str) -> _FakeBucket:
+        return _FakeBucket(self.uploaded)
+
+
+@pytest.fixture(autouse=True)
+def _fake_avatar_storage(monkeypatch):
+    """No real GCS call ever happens in tests — avatar_service's module-
+    level client singleton is replaced with an in-memory fake before each
+    test, the same "patch the exact boundary, not the whole service"
+    approach as _fake_push.
+    """
+    fake_client = _FakeStorageClient()
+    monkeypatch.setattr(avatar_service, "_client", fake_client)
+    monkeypatch.setattr(avatar_service, "_get_client", lambda: fake_client)
+    return fake_client
 
 
 @pytest_asyncio.fixture

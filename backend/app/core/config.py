@@ -75,6 +75,16 @@ class Settings(BaseSettings):
     # pair, same atomic SET-NX cooldown shape as quiet_pulse_cooldown_seconds.
     urgent_access_cooldown_seconds: int = 300  # 5 min between one requester's asks to one holder
 
+    # Avatar upload: a GCS bucket with public-read objects (profile photos
+    # aren't sensitive and this avoids the complexity of signed URLs for
+    # something every housemate already sees as part of the app's normal
+    # UI). The google-cloud-storage client resolves credentials via plain
+    # Application Default Credentials — on Cloud Run that's the attached
+    # runtime service account automatically, no impersonation dance like
+    # push_service.py needs for the Firebase Admin SDK specifically.
+    avatar_bucket_name: str = "quietpass-app-avatars"
+    avatar_max_dimension_px: int = 512
+
 
 @lru_cache
 def get_settings() -> Settings:
