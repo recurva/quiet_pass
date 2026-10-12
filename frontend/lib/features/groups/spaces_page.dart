@@ -77,6 +77,13 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
       for (final member in membersAsync.valueOrNull ?? const [])
         member.user.id: member.user.displayName,
     };
+    final isAdmin = me == null
+        ? false
+        : (membersAsync.valueOrNull ?? const [])
+                .where((m) => m.user.id == me.id)
+                .firstOrNull
+                ?.role ==
+            'admin';
 
     return Scaffold(
       backgroundColor: c.bg,
@@ -138,6 +145,7 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
                               .toList(),
                           namesById: namesById,
                           myUserId: me?.id,
+                          isAdmin: isAdmin,
                         ),
                       ),
                   ],
@@ -314,6 +322,7 @@ class _SpaceCard extends ConsumerWidget {
     required this.reservations,
     required this.namesById,
     required this.myUserId,
+    required this.isAdmin,
   });
 
   final String groupId;
@@ -321,6 +330,7 @@ class _SpaceCard extends ConsumerWidget {
   final List<AppReservation> reservations;
   final Map<String, String> namesById;
   final String? myUserId;
+  final bool isAdmin;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -385,6 +395,7 @@ class _SpaceCard extends ConsumerWidget {
                   reservation: reservation,
                   holderName: namesById[reservation.userId] ?? 'A housemate',
                   isMine: myUserId != null && reservation.userId == myUserId,
+                  canCancel: (myUserId != null && reservation.userId == myUserId) || isAdmin,
                   isActiveNow: !now.isBefore(reservation.startTime) && now.isBefore(reservation.endTime),
                 ),
               ),
@@ -444,6 +455,7 @@ class _ReservationRow extends ConsumerStatefulWidget {
     required this.reservation,
     required this.holderName,
     required this.isMine,
+    required this.canCancel,
     required this.isActiveNow,
   });
 
@@ -452,6 +464,11 @@ class _ReservationRow extends ConsumerStatefulWidget {
   final AppReservation reservation;
   final String holderName;
   final bool isMine;
+  /// Whether this viewer may cancel this reservation — true for the
+  /// booker themself, or any admin (who may cancel anyone's booking;
+  /// enforced server-side by cancel_reservation's own ownership check,
+  /// this just controls whether the UI offers the action at all).
+  final bool canCancel;
   final bool isActiveNow;
 
   @override
@@ -475,21 +492,28 @@ class _ReservationRowState extends ConsumerState<_ReservationRow> {
             style: context.text.bodySmall,
           ),
         ),
-        if (widget.isMine)
+        // An admin viewing someone else's currently-active booking gets
+        // both actions — "ask nicely" and "cancel outright" are
+        // different tools for different situations, not a choice between
+        // them.
+        if (!widget.isMine && widget.isActiveNow)
+          Padding(
+            padding: EdgeInsets.only(right: widget.canCancel ? Space.sm.w : 0),
+            child: GestureDetector(
+              onTap: _busy ? null : _requestUrgentAccess,
+              child: Text(
+                'Ask for 5 min',
+                style: context.text.bodySmall?.copyWith(
+                  color: c.accent,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        if (widget.canCancel)
           GestureDetector(
             onTap: _busy ? null : _cancel,
             child: Icon(Icons.close, size: 16.r, color: c.ink3),
-          )
-        else if (widget.isActiveNow)
-          GestureDetector(
-            onTap: _busy ? null : _requestUrgentAccess,
-            child: Text(
-              'Ask for 5 min',
-              style: context.text.bodySmall?.copyWith(
-                color: c.accent,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
           ),
       ],
     );
