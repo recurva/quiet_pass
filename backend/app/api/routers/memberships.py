@@ -15,6 +15,7 @@ from app.models.user import User
 from app.schemas.membership import MembershipRead
 from app.services import push_service
 from app.services.membership_service import rebalance_admin_before_departure
+from app.services.reservation_service import cancel_future_reservations_for_departing_member
 from app.services.status_service import clear_status, publish_group_event
 
 logger = get_logger(__name__)
@@ -132,6 +133,14 @@ async def remove_membership(
 
     if not should_delete_group:
         await clear_status(redis, group_id, departed_user_id)
+        # Only needed here, not on the should_delete_group branch — a
+        # deleted group's own ON DELETE CASCADE (via Reservation.group_id)
+        # already wipes every reservation and recurring series under it.
+        # See cancel_future_reservations_for_departing_member's docstring
+        # for why this doesn't also need to run on account deletion.
+        await cancel_future_reservations_for_departing_member(
+            db, redis, group_id=group_id, user_id=departed_user_id
+        )
 
     # "kicked" distinguishes this from a voluntary leave for whichever
     # client happens to be the departed user's own — see

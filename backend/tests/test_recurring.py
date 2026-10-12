@@ -31,6 +31,13 @@ async def _first_space_id(client, uid: str, phone: str, group_id: str) -> str:
     return response.json()[0]["id"]
 
 
+async def _join(client, uid: str, phone: str, name: str, invite_code: str) -> None:
+    await _sign_in(client, uid, phone, name)
+    await client.post(
+        "/api/v1/groups/join", headers=auth_headers(uid, phone), json={"invite_code": invite_code}
+    )
+
+
 def _iso(dt: datetime) -> str:
     return dt.isoformat()
 
@@ -314,6 +321,233 @@ async def test_invalid_weekdays_are_rejected(client):
 
     duplicates = await _create_series(client, "uid-rec-15", "+911111110015", group["id"], space_id, [1, 1])
     assert duplicates.status_code == 422
+
+
+async def test_cancelling_an_ad_hoc_reservation_still_works_through_the_shared_endpoint(client):
+    """DELETE /reservations/{id} is shared by ad-hoc bookings and
+    recurring occurrences — this confirms the ad-hoc path specifically,
+    not just the recurring one every other cancellation test here covers.
+    """
+    await _sign_in(client, "uid-rec-18", "+911111110018", "A")
+    group = await _create_group(client, "uid-rec-18", "+911111110018")
+    space_id = await _first_space_id(client, "uid-rec-18", "+911111110018", group["id"])
+
+    start = datetime.now(timezone.utc) + timedelta(hours=2)
+    booking = await client.post(
+        f"/api/v1/groups/{group['id']}/spaces/{space_id}/reservations",
+        headers=auth_headers("uid-rec-18", "+911111110018"),
+        json={"start_time": _iso(start), "duration_minutes": 30},
+    )
+    reservation_id = booking.json()["reservation"]["id"]
+
+    cancel = await client.delete(
+        f"/api/v1/groups/{group['id']}/reservations/{reservation_id}",
+        headers=auth_headers("uid-rec-18", "+911111110018"),
+    )
+    assert cancel.status_code == 204
+
+    remaining = await client.get(
+        f"/api/v1/groups/{group['id']}/reservations", headers=auth_headers("uid-rec-18", "+911111110018")
+    )
+    assert remaining.json() == []
+
+
+async def test_reservation_list_reports_recurring_series_id_correctly(client):
+    """An occurrence's reservation carries its series id; an ad-hoc
+    booking's is null — this is what the Flutter client uses to show the
+    "weekly" tag and to decide which cancel action to offer.
+    """
+    await _sign_in(client, "uid-rec-19", "+911111110019", "A")
+    group = await _create_group(client, "uid-rec-19", "+911111110019")
+    space_id = await _first_space_id(client, "uid-rec-19", "+911111110019", group["id"])
+
+    series_response = await _create_series(client, "uid-rec-19", "+911111110019", group["id"], space_id, [1])
+    series_id = series_response.json()["series"]["id"]
+
+    ad_hoc_start = datetime.now(timezone.utc) + timedelta(hours=1)
+    await client.post(
+        f"/api/v1/groups/{group['id']}/spaces/{space_id}/reservations",
+        headers=auth_headers("uid-rec-19", "+911111110019"),
+        json={"start_time": _iso(ad_hoc_start), "duration_minutes": 15},
+    )
+
+    listed = (
+        await client.get(
+            f"/api/v1/groups/{group['id']}/reservations", headers=auth_headers("uid-rec-19", "+911111110019")
+        )
+    ).json()
+    series_tagged = [r for r in listed if r["recurring_series_id"] == series_id]
+    ad_hoc_tagged = [r for r in listed if r["recurring_series_id"] is None]
+    assert len(series_tagged) >= 1
+    assert len(ad_hoc_tagged) == 1
+
+
+async def test_concurrent_series_creation_cannot_race_past_the_weekly_cap(concurrent_client):
+    """The weekly cap is an app-level read-then-check
+    (_active_weekday_count), not a database constraint like the
+    exclusion constraint every occurrence gets — without serialization,
+    two genuinely concurrent series-creation calls from the same user
+    could each read the cap as not-yet-reached and both land, exceeding
+    the limit (this was confirmed empirically before
+    create_recurring_series's pg_advisory_xact_lock was added — both
+    requests used to return 201). The lock makes the second call block
+    until the first's transaction has committed, so exactly one of these
+    two must be rejected.
+    """
+    client = concurrent_client
+    await _sign_in(client, "uid-rec-20", "+911111110020", "A")
+    group = await _create_group(client, "uid-rec-20", "+911111110020")
+    space_id = await _first_space_id(client, "uid-rec-20", "+911111110020", group["id"])
+
+    # Two series of 2 weekdays each — 2+2=4, over the cap of 3 — attempted
+    # at the same instant over independent connections.
+    results = await asyncio.gather(
+        _create_series(client, "uid-rec-20", "+911111110020", group["id"], space_id, [0, 1]),
+        _create_series(client, "uid-rec-20", "+911111110020", group["id"], space_id, [2, 3]),
+        return_exceptions=True,
+    )
+    statuses = sorted(r.status_code for r in results if not isinstance(r, Exception))
+    assert statuses == [201, 409], (
+        f"expected exactly one to land and one rejected by the cap, got {statuses} "
+        f"(exceptions: {[r for r in results if isinstance(r, Exception)]})"
+    )
+
+
+async def test_leaving_a_group_cancels_future_reservations_and_recurring_occurrences_there_only(client):
+    """A departed member's future bookings in the house they left —
+    ad-hoc and every future occurrence of a recurring series — must be
+    cancelled, freeing those slots; but their bookings in a *different*
+    house they're still a member of must be completely untouched. This
+    is the fix for the gap where a departed member's weekly series would
+    otherwise hold a space indefinitely with no one able to clear it.
+    """
+    member = await _sign_in(client, "uid-rec-21", "+911111110021", "Leaving Member")
+    house_a = await _create_group(client, "uid-rec-21", "+911111110021")
+    space_a_id = await _first_space_id(client, "uid-rec-21", "+911111110021", house_a["id"])
+
+    # A second member in house A, so the departure promotes them to admin
+    # instead of deleting the house (leaving_member created the house and
+    # is its only admin until this join).
+    await _join(client, "uid-rec-22", "+911111110022", "Staying Member", house_a["invite_code"])
+
+    series_response = await _create_series(client, "uid-rec-21", "+911111110021", house_a["id"], space_a_id, [0, 2])
+    series_id = series_response.json()["series"]["id"]
+    occurrence_count = len(series_response.json()["created"])
+    assert occurrence_count > 0
+
+    ad_hoc_start = datetime.now(timezone.utc) + timedelta(hours=2)
+    ad_hoc = await client.post(
+        f"/api/v1/groups/{house_a['id']}/spaces/{space_a_id}/reservations",
+        headers=auth_headers("uid-rec-21", "+911111110021"),
+        json={"start_time": _iso(ad_hoc_start), "duration_minutes": 15},
+    )
+    assert ad_hoc.status_code == 201
+
+    # The same member also has a booking in a second, unrelated house —
+    # this one must survive the departure from house A untouched.
+    house_b = await _create_group(client, "uid-rec-21", "+911111110021")
+    space_b_id = await _first_space_id(client, "uid-rec-21", "+911111110021", house_b["id"])
+    house_b_start = datetime.now(timezone.utc) + timedelta(hours=3)
+    house_b_booking = await client.post(
+        f"/api/v1/groups/{house_b['id']}/spaces/{space_b_id}/reservations",
+        headers=auth_headers("uid-rec-21", "+911111110021"),
+        json={"start_time": _iso(house_b_start), "duration_minutes": 15},
+    )
+    assert house_b_booking.status_code == 201
+
+    members = (
+        await client.get(f"/api/v1/groups/{house_a['id']}/members", headers=auth_headers("uid-rec-21", "+911111110021"))
+    ).json()
+    my_membership_id = next(m["id"] for m in members if m["user_id"] == member["id"])
+
+    leave = await client.delete(
+        f"/api/v1/memberships/{my_membership_id}", headers=auth_headers("uid-rec-21", "+911111110021")
+    )
+    assert leave.status_code == 204
+
+    # House A: nothing of theirs remains — the series's occurrences and
+    # the ad-hoc booking are both gone, and the orphaned series row itself
+    # is cleaned up (zero remaining occurrences, previous owner gone).
+    house_a_reservations = (
+        await client.get(f"/api/v1/groups/{house_a['id']}/reservations", headers=auth_headers("uid-rec-22", "+911111110022"))
+    ).json()
+    assert house_a_reservations == []
+
+    house_a_series = (
+        await client.get(f"/api/v1/groups/{house_a['id']}/recurring-series", headers=auth_headers("uid-rec-22", "+911111110022"))
+    ).json()
+    assert all(s["id"] != series_id for s in house_a_series)
+
+    # The freed slot is actually bookable again, not just marked gone —
+    # the exact behavior that makes this fix worth doing.
+    rebook = await client.post(
+        f"/api/v1/groups/{house_a['id']}/spaces/{space_a_id}/reservations",
+        headers=auth_headers("uid-rec-22", "+911111110022"),
+        json={"start_time": _iso(ad_hoc_start), "duration_minutes": 15},
+    )
+    assert rebook.status_code == 201
+
+    # House B: completely untouched by the house A departure.
+    house_b_reservations = (
+        await client.get(f"/api/v1/groups/{house_b['id']}/reservations", headers=auth_headers("uid-rec-21", "+911111110021"))
+    ).json()
+    assert len(house_b_reservations) == 1
+    assert house_b_reservations[0]["id"] == house_b_booking.json()["reservation"]["id"]
+
+
+async def test_admin_cancelling_someone_elses_booking_sends_them_a_push(client, _fake_push):
+    """A self-cancel needs no notification; an admin cancelling someone
+    else's booking does, since otherwise they'd only find out by
+    checking the app or showing up to a space that's no longer theirs.
+    """
+    await _sign_in(client, "uid-rec-23", "+911111110023", "Admin")
+    group = await _create_group(client, "uid-rec-23", "+911111110023")
+    space_id = await _first_space_id(client, "uid-rec-23", "+911111110023", group["id"])
+    await _join(client, "uid-rec-24", "+911111110024", "Member", group["invite_code"])
+    await client.post(
+        "/api/v1/device-tokens",
+        headers=auth_headers("uid-rec-24", "+911111110024"),
+        json={"token": "fake-device-token-rec-24", "platform": "android"},
+    )
+
+    start = datetime.now(timezone.utc) + timedelta(hours=1)
+    booking = await client.post(
+        f"/api/v1/groups/{group['id']}/spaces/{space_id}/reservations",
+        headers=auth_headers("uid-rec-24", "+911111110024"),
+        json={"start_time": _iso(start), "duration_minutes": 15},
+    )
+    reservation_id = booking.json()["reservation"]["id"]
+    _fake_push.reset_mock()
+
+    cancel = await client.delete(
+        f"/api/v1/groups/{group['id']}/reservations/{reservation_id}",
+        headers=auth_headers("uid-rec-23", "+911111110023"),
+    )
+    assert cancel.status_code == 204
+    _fake_push.assert_called_once()
+    call_kwargs = _fake_push.call_args.kwargs
+    assert "cancelled" in call_kwargs["body"].lower()
+
+
+async def test_self_cancelling_your_own_booking_sends_no_push(client, _fake_push):
+    await _sign_in(client, "uid-rec-25", "+911111110025", "A")
+    group = await _create_group(client, "uid-rec-25", "+911111110025")
+    space_id = await _first_space_id(client, "uid-rec-25", "+911111110025", group["id"])
+
+    start = datetime.now(timezone.utc) + timedelta(hours=1)
+    booking = await client.post(
+        f"/api/v1/groups/{group['id']}/spaces/{space_id}/reservations",
+        headers=auth_headers("uid-rec-25", "+911111110025"),
+        json={"start_time": _iso(start), "duration_minutes": 15},
+    )
+    reservation_id = booking.json()["reservation"]["id"]
+    _fake_push.reset_mock()
+
+    await client.delete(
+        f"/api/v1/groups/{group['id']}/reservations/{reservation_id}",
+        headers=auth_headers("uid-rec-25", "+911111110025"),
+    )
+    _fake_push.assert_not_called()
 
 
 async def test_non_member_cannot_create_or_view_recurring_series(client):

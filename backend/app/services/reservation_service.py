@@ -21,9 +21,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.models.chore import Chore
+from app.models.device_token import DeviceToken
+from app.models.recurring_series import RecurringSeries
 from app.models.reservation import Reservation
 from app.models.space import Space
 from app.schemas.reservation import ReservationRead
+from app.services import push_service
 from app.services.status_service import publish_group_event
 
 logger = get_logger(__name__)
@@ -196,6 +199,10 @@ async def cancel_reservation(
         raise ReservationNotOwnedError()
 
     space_id = reservation.space_id
+    holder_id = reservation.user_id
+    cancelled_by_someone_else = holder_id != acting_user_id
+    space = await db.get(Space, space_id) if cancelled_by_someone_else else None
+
     await db.delete(reservation)
     await db.commit()
 
@@ -208,13 +215,111 @@ async def cancel_reservation(
             "reservation_id": str(reservation_id),
         },
     )
+
+    # Admin-cancelled-someone-else's-booking case only — a self-cancel
+    # needs no notification (the booker is the one who just acted). Same
+    # best-effort push pattern as member-removal (memberships.py's
+    # remove_membership): never raises, the cancellation has already
+    # committed by this point regardless.
+    if cancelled_by_someone_else and space is not None:
+        tokens_result = await db.execute(
+            select(DeviceToken.token).where(DeviceToken.user_id == holder_id)
+        )
+        tokens = [row[0] for row in tokens_result.all()]
+        if tokens:
+            await push_service.send_to_tokens(
+                tokens,
+                title="QuietPass",
+                body=f"Your booking for {space.name} was cancelled by an admin.",
+                data={"event": "reservation_cancelled", "group_id": str(group_id)},
+            )
+
     logger.info(
         "reservation.cancelled",
         group_id=str(group_id),
         space_id=str(space_id),
+        cancelled_by_someone_else=cancelled_by_someone_else,
         reservation_id=str(reservation_id),
         acting_user_id=str(acting_user_id),
     )
+
+
+async def cancel_future_reservations_for_departing_member(
+    db: AsyncSession, redis: Redis, group_id: uuid.UUID, user_id: uuid.UUID
+) -> list[uuid.UUID]:
+    """Called when a member leaves (or is removed from) a group — NOT on
+    account deletion, which already cascades every reservation
+    automatically via Reservation.user_id's own ON DELETE CASCADE (see
+    users.py's delete_current_user docstring). Leaving a single group
+    doesn't delete the User row, so that cascade never fires; without
+    this, a departed member's future bookings — including, critically,
+    every future occurrence of a recurring series — would sit there
+    holding the space indefinitely with no one left who can cancel them
+    (the booker is no longer a member; see RecurringSeries's own
+    cancel-series permission check).
+
+    Deletes every future reservation this user holds in this one group
+    (their chores cascade-delete via Chore.reservation_id's own ON
+    DELETE CASCADE) and, for any recurring series of theirs that's left
+    with no remaining future occurrences, the now-pointless series row
+    too — same cleanup cancel_series itself does. Returns the cancelled
+    reservation ids for the caller's own logging/event purposes.
+    """
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        select(Reservation).where(
+            Reservation.group_id == group_id,
+            Reservation.user_id == user_id,
+            Reservation.start_time >= now,
+        )
+    )
+    future_reservations = list(result.scalars().all())
+    touched_series_ids = {
+        r.recurring_series_id for r in future_reservations if r.recurring_series_id is not None
+    }
+
+    cancelled_ids = [r.id for r in future_reservations]
+    for reservation in future_reservations:
+        await db.delete(reservation)
+    await db.flush()
+
+    # A series with zero remaining occurrences (every future one just got
+    # deleted above) has nothing left to represent — clean it up the same
+    # way cancel_series does, rather than leaving an orphaned recurrence
+    # rule that can never produce another booking (its owner isn't a
+    # member of this group anymore).
+    for series_id in touched_series_ids:
+        remaining = await db.execute(
+            select(Reservation.id).where(Reservation.recurring_series_id == series_id).limit(1)
+        )
+        if remaining.first() is None:
+            series = await db.get(RecurringSeries, series_id)
+            if series is not None:
+                await db.delete(series)
+
+    await db.commit()
+
+    for reservation_id in cancelled_ids:
+        await publish_group_event(
+            redis,
+            group_id,
+            {
+                "event": "reservation_cancelled",
+                "group_id": str(group_id),
+                "reservation_id": str(reservation_id),
+            },
+        )
+
+    if cancelled_ids:
+        logger.info(
+            "reservation.cancelled_on_departure",
+            group_id=str(group_id),
+            user_id=str(user_id),
+            cancelled_count=len(cancelled_ids),
+            series_removed_count=len(touched_series_ids),
+        )
+
+    return cancelled_ids
 
 
 async def list_group_reservations(

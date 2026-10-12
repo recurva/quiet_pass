@@ -34,7 +34,7 @@ import uuid
 from datetime import date, datetime, time, timedelta, timezone
 
 from redis.asyncio import Redis
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -123,6 +123,24 @@ async def create_recurring_series(
     user_id: uuid.UUID,
     payload: RecurringSeriesCreate,
 ) -> tuple[RecurringSeriesRead, list[ReservationWithChore], list[SkippedOccurrence]]:
+    # Unlike the EXCLUDE constraint that protects every occurrence insert
+    # below, the weekly cap is an app-level read-then-check
+    # (_active_weekday_count) with nothing in the schema enforcing it —
+    # two genuinely concurrent series-creation calls from the same user
+    # could each read the cap as not-yet-reached and both proceed,
+    # landing combined over the limit (confirmed empirically in
+    # test_concurrent_series_creation_can_race_past_the_weekly_cap before
+    # this lock was added — both requests returned 201). A Postgres
+    # advisory transaction lock, scoped to this (group, user) pair, makes
+    # a second concurrent call block here until the first's transaction
+    # commits or rolls back, so the second's cap read always sees the
+    # first's already-created series. Automatically released at the end
+    # of this transaction — no separate unlock call needed.
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+        {"key": f"recurring_series_cap:{group_id}:{user_id}"},
+    )
+
     existing_count = await _active_weekday_count(db, group_id, user_id)
     if existing_count + len(payload.weekdays) > settings.recurring_series_max_slots_per_week:
         raise RecurringWeeklyCapError(settings.recurring_series_max_slots_per_week)
