@@ -39,6 +39,8 @@ class GroupStatusClient {
   final _dinnerUpdatedController = StreamController<void>.broadcast();
   final _agreementUpdatedController = StreamController<void>.broadcast();
   final _wifiUpdatedController = StreamController<void>.broadcast();
+  final _reservationCancelledController = StreamController<void>.broadcast();
+  final _urgentAccessRequestsController = StreamController<UrgentAccessRequest>.broadcast();
 
   /// Emits the full current `{userId: MemberStatus}` map on every change
   /// (including the initial snapshot).
@@ -67,6 +69,17 @@ class GroupStatusClient {
   /// Spaces screen already refetches the whole list on any reservation
   /// event anyway.
   Stream<void> get choreUpdated => _choreUpdatedController.stream;
+
+  /// Fires once per reservation cancellation, in real time — an ad-hoc
+  /// booking or a single recurring occurrence being cancelled, or a whole
+  /// series cancellation's constituent occurrences, one event each. Same
+  /// "just a signal, refetch" shape as [reservations]/[choreUpdated]: the
+  /// Spaces screen re-fetches the full list either way.
+  Stream<void> get reservationCancelled => _reservationCancelledController.stream;
+
+  /// Emits one event per urgent access request received, in real time —
+  /// not anonymous, see UrgentAccessRequest's own doc comment.
+  Stream<UrgentAccessRequest> get urgentAccessRequests => _urgentAccessRequestsController.stream;
 
   /// Fires once per dinner-status change — any member of the house setting
   /// or changing theirs — in real time. Same "just a signal, refetch" shape
@@ -173,6 +186,14 @@ class GroupStatusClient {
         if (!_wifiUpdatedController.isClosed) {
           _wifiUpdatedController.add(null);
         }
+      case 'reservation_cancelled':
+        if (!_reservationCancelledController.isClosed) {
+          _reservationCancelledController.add(null);
+        }
+      case 'urgent_access_request':
+        if (!_urgentAccessRequestsController.isClosed) {
+          _urgentAccessRequestsController.add(UrgentAccessRequest.fromJson(data));
+        }
     }
   }
 
@@ -195,5 +216,7 @@ class GroupStatusClient {
     _dinnerUpdatedController.close();
     _agreementUpdatedController.close();
     _wifiUpdatedController.close();
+    _reservationCancelledController.close();
+    _urgentAccessRequestsController.close();
   }
 }

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.authz import require_membership
 from app.api.deps import get_current_user, get_db, get_redis
 from app.core.logging import get_logger
+from app.models.membership import MembershipRole
 from app.models.space import Space
 from app.models.user import User
 from app.schemas.chore import ChoreRead
@@ -90,3 +91,32 @@ async def create_reservation(
         reservation=ReservationRead.model_validate(reservation),
         chore=ChoreRead.model_validate(chore),
     )
+
+
+@router.delete("/reservations/{reservation_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def cancel_reservation(
+    group_id: uuid.UUID,
+    reservation_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    redis: Redis = Depends(get_redis),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    """Cancels a single occurrence — an ad-hoc booking or one occurrence of
+    a recurring series; to cancel a whole series use
+    DELETE /recurring-series/{id} instead. Only the booker or an admin may
+    cancel.
+    """
+    membership = await require_membership(db, group_id=group_id, user_id=current_user.id)
+    try:
+        await reservation_service.cancel_reservation(
+            db,
+            redis,
+            group_id=group_id,
+            reservation_id=reservation_id,
+            acting_user_id=current_user.id,
+            acting_user_is_admin=membership.role == MembershipRole.ADMIN,
+        )
+    except reservation_service.ReservationNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except reservation_service.ReservationNotOwnedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc

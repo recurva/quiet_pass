@@ -74,11 +74,25 @@ final groupReservationsLiveRefreshProvider = Provider.autoDispose.family<void, S
       ref.invalidate(groupChoresProvider(groupId));
     });
   });
+  // Cancelling a reservation (ad-hoc, a single recurring occurrence, or a
+  // whole series) needs the same refetch — a dedicated cancellation
+  // event, since `reservations` above only ever fires on creation.
+  ref.listen(groupReservationCancelledEventsProvider(groupId), (previous, next) {
+    next.whenData((_) {
+      ref.invalidate(groupReservationsProvider(groupId));
+      ref.invalidate(groupChoresProvider(groupId));
+    });
+  });
 });
 
 final groupReservationEventsProvider =
     StreamProvider.autoDispose.family<AppReservation, String>((ref, groupId) {
   return ref.watch(groupStatusClientProvider(groupId)).reservations;
+});
+
+final groupReservationCancelledEventsProvider =
+    StreamProvider.autoDispose.family<void, String>((ref, groupId) {
+  return ref.watch(groupStatusClientProvider(groupId)).reservationCancelled;
 });
 
 /// Refetches the chore list whenever a `chore_done` event arrives —
@@ -195,4 +209,59 @@ final groupWifiLiveRefreshProvider = Provider.autoDispose.family<void, String>((
 
 final groupWifiEventsProvider = StreamProvider.autoDispose.family<void, String>((ref, groupId) {
   return ref.watch(groupStatusClientProvider(groupId)).wifiUpdated;
+});
+
+final groupMyRecurringSeriesProvider =
+    FutureProvider.autoDispose.family<List<AppRecurringSeries>, String>((ref, groupId) {
+  return ref.watch(groupsRepositoryProvider).fetchMyRecurringSeries(groupId);
+});
+
+/// Recurring series and reservations share one live-refresh signal: a
+/// series create/cancel always also creates/cancels reservations, so the
+/// same `reservation`/`reservation_cancelled` events this screen already
+/// watches are sufficient — no separate series-specific WS event exists
+/// or is needed.
+final groupMyRecurringSeriesLiveRefreshProvider = Provider.autoDispose.family<void, String>((ref, groupId) {
+  ref.listen(groupReservationEventsProvider(groupId), (previous, next) {
+    next.whenData((_) => ref.invalidate(groupMyRecurringSeriesProvider(groupId)));
+  });
+  ref.listen(groupReservationCancelledEventsProvider(groupId), (previous, next) {
+    next.whenData((_) => ref.invalidate(groupMyRecurringSeriesProvider(groupId)));
+  });
+});
+
+/// Pending urgent access requests addressed to *this* device's user —
+/// deliberately not `autoDispose`, same reasoning as
+/// [groupPendingNudgesProvider]: a request must stay visible (so the
+/// holder actually sees it) across navigating away and back, not just
+/// while this exact screen happens to be mounted.
+class PendingUrgentAccessRequestsNotifier
+    extends FamilyNotifier<List<UrgentAccessRequest>, String> {
+  @override
+  List<UrgentAccessRequest> build(String groupId) {
+    ref.listen(groupUrgentAccessRequestEventsProvider(groupId), (previous, next) {
+      final request = next.valueOrNull;
+      if (request == null) return;
+      final me = ref.read(currentBackendUserProvider).valueOrNull;
+      if (me == null || request.holderId != me.id) return;
+      state = [...state, request];
+    });
+    return [];
+  }
+
+  void dismiss(String reservationId, String requesterId) {
+    state = state
+        .where((r) => !(r.reservationId == reservationId && r.requesterId == requesterId))
+        .toList();
+  }
+}
+
+final groupPendingUrgentAccessRequestsProvider = NotifierProvider.family<
+    PendingUrgentAccessRequestsNotifier, List<UrgentAccessRequest>, String>(
+  PendingUrgentAccessRequestsNotifier.new,
+);
+
+final groupUrgentAccessRequestEventsProvider =
+    StreamProvider.autoDispose.family<UrgentAccessRequest, String>((ref, groupId) {
+  return ref.watch(groupStatusClientProvider(groupId)).urgentAccessRequests;
 });

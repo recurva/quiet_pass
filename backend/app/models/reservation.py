@@ -48,6 +48,18 @@ class Reservation(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    # Null for an ad-hoc booking. SET NULL (not CASCADE) on the series'
+    # deletion — cancelling a whole series removes its *future* occurrences
+    # explicitly (recurring_service.cancel_series) but intentionally keeps
+    # past ones for history; those survivors just lose the series link
+    # rather than being deleted by an FK cascade they were never meant to
+    # be part of.
+    recurring_series_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("recurring_series.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     end_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     # Buffer-padded range used only for the exclusion check; see docstring.

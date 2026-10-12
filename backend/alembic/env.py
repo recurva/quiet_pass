@@ -14,6 +14,7 @@ from app.models import (  # noqa: F401  (registers models on Base)
     DinnerHeadcount,
     Group,
     Membership,
+    RecurringSeries,
     Reservation,
     Space,
     User,

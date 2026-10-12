@@ -61,7 +61,17 @@ class ReservationTooFarAheadError(ReservationError):
         super().__init__(f"Bookings can only be made up to {max_days} days ahead.")
 
 
-def _chore_template_for(space_name: str) -> str:
+class ReservationNotFoundError(ReservationError):
+    def __init__(self) -> None:
+        super().__init__("Reservation not found.")
+
+
+class ReservationNotOwnedError(ReservationError):
+    def __init__(self) -> None:
+        super().__init__("Only the person who booked this, or an admin, can cancel it.")
+
+
+def chore_template_for(space_name: str) -> str:
     return _CHORE_TEMPLATES.get(space_name.strip().lower(), _DEFAULT_CHORE_TEMPLATE)
 
 
@@ -139,7 +149,7 @@ async def create_reservation(
     chore = Chore(
         reservation_id=reservation.id,
         user_id=user_id,
-        template=_chore_template_for(space_name),
+        template=chore_template_for(space_name),
         due_at=end_time,
     )
     db.add(chore)
@@ -164,6 +174,47 @@ async def create_reservation(
     )
 
     return reservation, chore
+
+
+async def cancel_reservation(
+    db: AsyncSession,
+    redis: Redis,
+    group_id: uuid.UUID,
+    reservation_id: uuid.UUID,
+    acting_user_id: uuid.UUID,
+    acting_user_is_admin: bool,
+) -> None:
+    """Cancels one occurrence — works identically for an ad-hoc booking and
+    a single occurrence of a recurring series (the series row itself, and
+    every *other* occurrence, are untouched). The reservation's chore
+    cascade-deletes via Chore.reservation_id's own ON DELETE CASCADE.
+    """
+    reservation = await db.get(Reservation, reservation_id)
+    if reservation is None or reservation.group_id != group_id:
+        raise ReservationNotFoundError()
+    if reservation.user_id != acting_user_id and not acting_user_is_admin:
+        raise ReservationNotOwnedError()
+
+    space_id = reservation.space_id
+    await db.delete(reservation)
+    await db.commit()
+
+    await publish_group_event(
+        redis,
+        group_id,
+        {
+            "event": "reservation_cancelled",
+            "group_id": str(group_id),
+            "reservation_id": str(reservation_id),
+        },
+    )
+    logger.info(
+        "reservation.cancelled",
+        group_id=str(group_id),
+        space_id=str(space_id),
+        reservation_id=str(reservation_id),
+        acting_user_id=str(acting_user_id),
+    )
 
 
 async def list_group_reservations(

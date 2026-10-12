@@ -27,6 +27,9 @@ class ReservationRead(BaseModel):
     user_id: uuid.UUID
     start_time: datetime
     end_time: datetime
+    # Set only for a reservation generated as one occurrence of a
+    # RecurringSeries; null for an ad-hoc booking.
+    recurring_series_id: uuid.UUID | None = None
 
 
 class ReservationWithChore(BaseModel):

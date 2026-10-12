@@ -13,8 +13,10 @@ from app.api.routers import (
     groups,
     memberships,
     nudges,
+    recurring,
     spaces,
     status as status_router,
+    urgent_access,
     users,
     wifi,
     ws,
@@ -50,7 +52,11 @@ app.add_middleware(
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
     logger.warning("http_exception", path=request.url.path, detail=exc.detail)
-    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    # exc.headers (e.g. Retry-After on a 429) must be forwarded explicitly —
+    # building a fresh JSONResponse here otherwise silently drops them.
+    return JSONResponse(
+        status_code=exc.status_code, content={"detail": exc.detail}, headers=exc.headers
+    )
 
 
 @app.exception_handler(Exception)
@@ -75,6 +81,8 @@ app.include_router(status_router.router, prefix="/api/v1")
 app.include_router(nudges.router, prefix="/api/v1")
 app.include_router(device_tokens.router, prefix="/api/v1")
 app.include_router(spaces.router, prefix="/api/v1")
+app.include_router(recurring.router, prefix="/api/v1")
+app.include_router(urgent_access.router, prefix="/api/v1")
 app.include_router(chores.router, prefix="/api/v1")
 app.include_router(dinner.router, prefix="/api/v1")
 app.include_router(agreements.router, prefix="/api/v1")

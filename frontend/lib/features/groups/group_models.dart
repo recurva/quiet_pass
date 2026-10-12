@@ -163,6 +163,7 @@ class AppReservation {
     required this.userId,
     required this.startTime,
     required this.endTime,
+    this.recurringSeriesId,
   });
 
   factory AppReservation.fromJson(Map<String, dynamic> json) => AppReservation(
@@ -172,6 +173,7 @@ class AppReservation {
         userId: json['user_id'] as String,
         startTime: DateTime.parse(json['start_time'] as String).toUtc(),
         endTime: DateTime.parse(json['end_time'] as String).toUtc(),
+        recurringSeriesId: json['recurring_series_id'] as String?,
       );
 
   final String id;
@@ -180,6 +182,9 @@ class AppReservation {
   final String userId;
   final DateTime startTime;
   final DateTime endTime;
+  /// Set only when this reservation is one occurrence of a recurring
+  /// series; null for an ad-hoc booking.
+  final String? recurringSeriesId;
 }
 
 /// The clean-up task attached to a reservation, assigned to whoever booked
@@ -313,4 +318,127 @@ class WifiCredentials {
   final String ssid;
   final String password;
   final DateTime updatedAt;
+}
+
+/// A member's weekly repeating booking rule (e.g. every Tue/Thu
+/// 7:00-8:00 PM UTC). Mirrors the backend's `RecurringSeriesRead`. The
+/// actual bookings are ordinary [AppReservation]s tagged with this
+/// series's id ([AppReservation.recurringSeriesId]) — this class is just
+/// the recurrence rule, not the occurrences themselves.
+class AppRecurringSeries {
+  const AppRecurringSeries({
+    required this.id,
+    required this.groupId,
+    required this.spaceId,
+    required this.userId,
+    required this.weekdays,
+    required this.startHourUtc,
+    required this.startMinuteUtc,
+    required this.durationMinutes,
+    required this.createdAt,
+  });
+
+  factory AppRecurringSeries.fromJson(Map<String, dynamic> json) => AppRecurringSeries(
+        id: json['id'] as String,
+        groupId: json['group_id'] as String,
+        spaceId: json['space_id'] as String,
+        userId: json['user_id'] as String,
+        weekdays: (json['weekdays'] as List<dynamic>).cast<int>(),
+        startHourUtc: json['start_hour_utc'] as int,
+        startMinuteUtc: json['start_minute_utc'] as int,
+        durationMinutes: json['duration_minutes'] as int,
+        createdAt: DateTime.parse(json['created_at'] as String).toUtc(),
+      );
+
+  final String id;
+  final String groupId;
+  final String spaceId;
+  final String userId;
+  /// 0=Monday .. 6=Sunday, matching the backend's date.weekday() convention.
+  final List<int> weekdays;
+  final int startHourUtc;
+  final int startMinuteUtc;
+  final int durationMinutes;
+  final DateTime createdAt;
+}
+
+/// One candidate occurrence a recurring series wanted to book but
+/// couldn't — always a conflict with an existing booking today. Mirrors
+/// the backend's `SkippedOccurrence`.
+class SkippedOccurrence {
+  const SkippedOccurrence({required this.startTime, required this.endTime, required this.reason});
+
+  factory SkippedOccurrence.fromJson(Map<String, dynamic> json) => SkippedOccurrence(
+        startTime: DateTime.parse(json['start_time'] as String).toUtc(),
+        endTime: DateTime.parse(json['end_time'] as String).toUtc(),
+        reason: json['reason'] as String,
+      );
+
+  final DateTime startTime;
+  final DateTime endTime;
+  final String reason;
+}
+
+/// Result of creating a recurring series: the series itself, every
+/// occurrence that was actually booked (each paired with its chore, same
+/// shape as a single ad-hoc booking), and every occurrence that lost to
+/// an existing conflict. Mirrors the backend's `RecurringSeriesCreateResult`.
+class RecurringSeriesCreateResult {
+  const RecurringSeriesCreateResult({
+    required this.series,
+    required this.created,
+    required this.skipped,
+  });
+
+  factory RecurringSeriesCreateResult.fromJson(Map<String, dynamic> json) =>
+      RecurringSeriesCreateResult(
+        series: AppRecurringSeries.fromJson(json['series'] as Map<String, dynamic>),
+        created: (json['created'] as List<dynamic>)
+            .map((entry) {
+              final map = entry as Map<String, dynamic>;
+              return (
+                AppReservation.fromJson(map['reservation'] as Map<String, dynamic>),
+                AppChore.fromJson(map['chore'] as Map<String, dynamic>),
+              );
+            })
+            .toList(),
+        skipped: (json['skipped'] as List<dynamic>)
+            .map((entry) => SkippedOccurrence.fromJson(entry as Map<String, dynamic>))
+            .toList(),
+      );
+
+  final AppRecurringSeries series;
+  final List<(AppReservation, AppChore)> created;
+  final List<SkippedOccurrence> skipped;
+}
+
+/// An "urgent 5-minute access request" sent to a reservation's current
+/// holder. Mirrors the backend's `UrgentAccessRequestRead`. Deliberately
+/// not anonymous — see urgent_access_service.py's module docstring for
+/// why, same reasoning [AppReservation] already isn't anonymous.
+class UrgentAccessRequest {
+  const UrgentAccessRequest({
+    required this.groupId,
+    required this.spaceId,
+    required this.reservationId,
+    required this.holderId,
+    required this.requesterId,
+    required this.createdAt,
+  });
+
+  factory UrgentAccessRequest.fromJson(Map<String, dynamic> json) => UrgentAccessRequest(
+        groupId: json['group_id'] as String,
+        spaceId: json['space_id'] as String,
+        reservationId: json['reservation_id'] as String,
+        holderId: json['holder_id'] as String,
+        requesterId: json['requester_id'] as String,
+        createdAt: DateTime.parse(json['created_at'] as String).toUtc(),
+      );
+
+  final String groupId;
+  final String spaceId;
+  final String reservationId;
+  final String holderId;
+  final String requesterId;
+  final DateTime createdAt;
 }

@@ -11,6 +11,8 @@ import 'booking_sheet.dart';
 import 'chore_pass_sheet.dart';
 import 'group_models.dart';
 import 'groups_providers.dart';
+import 'recurring_series_result_sheet.dart';
+import 'recurring_series_sheet.dart';
 
 /// Bookable spaces for a group: each space's upcoming reservations, a way
 /// to book one, and the caller's own chore passes from past bookings.
@@ -61,11 +63,14 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
     ref.watch(groupReservationsLiveRefreshProvider(groupId));
     ref.watch(groupMembersLiveRefreshProvider(groupId));
     ref.watch(groupChoresLiveRefreshProvider(groupId));
+    ref.watch(groupMyRecurringSeriesLiveRefreshProvider(groupId));
 
     final spacesAsync = ref.watch(groupSpacesProvider(groupId));
     final reservationsAsync = ref.watch(groupReservationsProvider(groupId));
     final membersAsync = ref.watch(groupMembersProvider(groupId));
     final choresAsync = ref.watch(groupChoresProvider(groupId));
+    final mySeriesAsync = ref.watch(groupMyRecurringSeriesProvider(groupId));
+    final pendingUrgentRequests = ref.watch(groupPendingUrgentAccessRequestsProvider(groupId));
     final me = ref.watch(currentBackendUserProvider).valueOrNull;
 
     final namesById = <String, String>{
@@ -82,6 +87,25 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _header(context),
+              if (pendingUrgentRequests.isNotEmpty) ...[
+                SizedBox(height: Space.lg.h),
+                for (final request in pendingUrgentRequests)
+                  Padding(
+                    padding: EdgeInsets.only(bottom: Space.sm.h),
+                    child: _UrgentAccessBanner(
+                      request: request,
+                      requesterName: namesById[request.requesterId] ?? 'A housemate',
+                      spaceName: (spacesAsync.valueOrNull ?? const [])
+                              .where((s) => s.id == request.spaceId)
+                              .firstOrNull
+                              ?.name ??
+                          'a space',
+                      onDismiss: () => ref
+                          .read(groupPendingUrgentAccessRequestsProvider(groupId).notifier)
+                          .dismiss(request.reservationId, request.requesterId),
+                    ),
+                  ),
+              ],
               SizedBox(height: Space.lg.h),
               Text(
                 'SPACES',
@@ -113,6 +137,7 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
                               .where((r) => r.spaceId == space.id)
                               .toList(),
                           namesById: namesById,
+                          myUserId: me?.id,
                         ),
                       ),
                   ],
@@ -203,6 +228,50 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
                   );
                 },
               ),
+              SizedBox(height: Space.base.h),
+              Text(
+                'YOUR RECURRING BOOKINGS',
+                style: context.text.labelLarge?.copyWith(
+                  color: c.ink3,
+                  fontSize: 11.sp,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              SizedBox(height: Space.sm.h),
+              mySeriesAsync.when(
+                loading: () => const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+                error: (error, _) => Padding(
+                  padding: EdgeInsets.symmetric(vertical: Space.lg.h),
+                  child: Text(friendlyErrorMessage(error), style: context.text.bodySmall?.copyWith(color: c.ink3)),
+                ),
+                data: (series) {
+                  if (series.isEmpty) {
+                    return Text(
+                      'No weekly bookings yet. Tap "Book weekly" on a space above.',
+                      style: context.text.bodySmall?.copyWith(color: c.ink3),
+                    );
+                  }
+                  final spaceNamesById = <String, String>{
+                    for (final space in spacesAsync.valueOrNull ?? const []) space.id: space.name,
+                  };
+                  return Column(
+                    children: [
+                      for (final s in series)
+                        Padding(
+                          padding: EdgeInsets.only(bottom: Space.sm.h),
+                          child: _RecurringSeriesRow(
+                            groupId: groupId,
+                            series: s,
+                            spaceName: spaceNamesById[s.spaceId] ?? 'A space',
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
             ],
           ),
         ),
@@ -244,17 +313,20 @@ class _SpaceCard extends ConsumerWidget {
     required this.space,
     required this.reservations,
     required this.namesById,
+    required this.myUserId,
   });
 
   final String groupId;
   final AppSpace space;
   final List<AppReservation> reservations;
   final Map<String, String> namesById;
+  final String? myUserId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.colors;
     final sorted = [...reservations]..sort((a, b) => a.startTime.compareTo(b.startTime));
+    final now = DateTime.now().toUtc();
 
     return Container(
       width: double.infinity,
@@ -270,9 +342,11 @@ class _SpaceCard extends ConsumerWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                space.name,
-                style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+              Expanded(
+                child: Text(
+                  space.name,
+                  style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+                ),
               ),
               OutlinedButton(
                 onPressed: () => _book(context, ref),
@@ -284,6 +358,17 @@ class _SpaceCard extends ConsumerWidget {
                 ),
                 child: const Text('Book'),
               ),
+              SizedBox(width: Space.xs.w),
+              OutlinedButton(
+                onPressed: () => _bookWeekly(context, ref),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: c.ink2,
+                  side: BorderSide(color: c.line2),
+                  padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.xs.h),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sm.r)),
+                ),
+                child: const Text('Book weekly'),
+              ),
             ],
           ),
           if (sorted.isEmpty) ...[
@@ -294,11 +379,13 @@ class _SpaceCard extends ConsumerWidget {
             for (final reservation in sorted)
               Padding(
                 padding: EdgeInsets.only(bottom: Space.xs.h),
-                child: Text(
-                  '${namesById[reservation.userId] ?? 'A housemate'} · '
-                  '${reservation.startTime.toLocalDateTimeLabel()}'
-                  ' – ${reservation.endTime.toLocalTimeLabel()}',
-                  style: context.text.bodySmall,
+                child: _ReservationRow(
+                  groupId: groupId,
+                  space: space,
+                  reservation: reservation,
+                  holderName: namesById[reservation.userId] ?? 'A housemate',
+                  isMine: myUserId != null && reservation.userId == myUserId,
+                  isActiveNow: !now.isBefore(reservation.startTime) && now.isBefore(reservation.endTime),
                 ),
               ),
           ],
@@ -318,6 +405,275 @@ class _SpaceCard extends ConsumerWidget {
     if (context.mounted) {
       await showChorePassSheet(context, groupId: groupId, chore: chore);
     }
+  }
+
+  Future<void> _bookWeekly(BuildContext context, WidgetRef ref) async {
+    final input = await showRecurringSeriesSheet(context, spaceName: space.name);
+    if (input == null || !context.mounted) return;
+
+    try {
+      final result = await ref.read(groupsRepositoryProvider).createRecurringSeries(
+            groupId,
+            space.id,
+            weekdays: input.weekdaysUtc,
+            startHourUtc: input.startHourUtc,
+            startMinuteUtc: input.startMinuteUtc,
+            durationMinutes: input.durationMinutes,
+          );
+      ref.invalidate(groupReservationsProvider(groupId));
+      ref.invalidate(groupChoresProvider(groupId));
+      ref.invalidate(groupMyRecurringSeriesProvider(groupId));
+      if (context.mounted) {
+        await showRecurringSeriesResultSheet(context, result: result);
+      }
+    } on ApiException catch (e) {
+      if (context.mounted) showAppSnackBar(context, e.message);
+    }
+  }
+}
+
+/// One booked slot on a space, with the actions available for it:
+/// cancelling your own booking, or — for someone else's booking that's
+/// active right now — sending an urgent access request. Neither action
+/// shows for a booking that's neither yours nor currently active, same as
+/// before this feature existed.
+class _ReservationRow extends ConsumerStatefulWidget {
+  const _ReservationRow({
+    required this.groupId,
+    required this.space,
+    required this.reservation,
+    required this.holderName,
+    required this.isMine,
+    required this.isActiveNow,
+  });
+
+  final String groupId;
+  final AppSpace space;
+  final AppReservation reservation;
+  final String holderName;
+  final bool isMine;
+  final bool isActiveNow;
+
+  @override
+  ConsumerState<_ReservationRow> createState() => _ReservationRowState();
+}
+
+class _ReservationRowState extends ConsumerState<_ReservationRow> {
+  bool _busy = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            '${widget.holderName} · '
+            '${widget.reservation.startTime.toLocalDateTimeLabel()}'
+            ' – ${widget.reservation.endTime.toLocalTimeLabel()}'
+            '${widget.reservation.recurringSeriesId != null ? ' · weekly' : ''}',
+            style: context.text.bodySmall,
+          ),
+        ),
+        if (widget.isMine)
+          GestureDetector(
+            onTap: _busy ? null : _cancel,
+            child: Icon(Icons.close, size: 16.r, color: c.ink3),
+          )
+        else if (widget.isActiveNow)
+          GestureDetector(
+            onTap: _busy ? null : _requestUrgentAccess,
+            child: Text(
+              'Ask for 5 min',
+              style: context.text.bodySmall?.copyWith(
+                color: c.accent,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _cancel() async {
+    setState(() => _busy = true);
+    try {
+      await ref.read(groupsRepositoryProvider).cancelReservation(widget.groupId, widget.reservation.id);
+      ref.invalidate(groupReservationsProvider(widget.groupId));
+      ref.invalidate(groupChoresProvider(widget.groupId));
+      ref.invalidate(groupMyRecurringSeriesProvider(widget.groupId));
+    } on ApiException catch (e) {
+      if (mounted) showAppSnackBar(context, e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _requestUrgentAccess() async {
+    setState(() => _busy = true);
+    try {
+      await ref.read(groupsRepositoryProvider).requestUrgentAccess(
+            widget.groupId,
+            widget.space.id,
+            widget.reservation.id,
+          );
+      if (mounted) showAppSnackBar(context, 'Sent. ${widget.holderName} has been notified.');
+    } on ApiException catch (e) {
+      if (mounted) showAppSnackBar(context, e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+}
+
+/// One of the caller's own recurring series: what it books and a way to
+/// cancel the whole thing. Individual occurrences are cancelled from
+/// their own row in [_SpaceCard] instead — this row is series-scoped only.
+class _RecurringSeriesRow extends ConsumerStatefulWidget {
+  const _RecurringSeriesRow({required this.groupId, required this.series, required this.spaceName});
+
+  final String groupId;
+  final AppRecurringSeries series;
+  final String spaceName;
+
+  @override
+  ConsumerState<_RecurringSeriesRow> createState() => _RecurringSeriesRowState();
+}
+
+class _RecurringSeriesRowState extends ConsumerState<_RecurringSeriesRow> {
+  bool _cancelling = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final s = widget.series;
+    final dayLabels = s.weekdays.map((d) => _weekdayShortLabel(d)).join(', ');
+    // The series's own hour/minute are UTC; a local hour:minute is shown
+    // by combining them with today's date purely for display formatting.
+    final sampleUtc = DateTime.now().toUtc();
+    final sampleStart = DateTime.utc(
+      sampleUtc.year,
+      sampleUtc.month,
+      sampleUtc.day,
+      s.startHourUtc,
+      s.startMinuteUtc,
+    );
+    final sampleEnd = sampleStart.add(Duration(minutes: s.durationMinutes));
+
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.md.h),
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(Radii.md.r),
+        border: Border.all(color: c.line),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.spaceName,
+                  style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+                ),
+                SizedBox(height: 1.h),
+                Text(
+                  '$dayLabels · ${sampleStart.toLocalTimeLabel()} – ${sampleEnd.toLocalTimeLabel()}',
+                  style: context.text.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          SizedBox(width: Space.sm.w),
+          OutlinedButton(
+            onPressed: _cancelling ? null : _cancelSeries,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: c.call.solid,
+              side: BorderSide(color: c.line2),
+              padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.xs.h),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sm.r)),
+            ),
+            child: _cancelling
+                ? SizedBox(
+                    width: 14.r,
+                    height: 14.r,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: c.call.solid),
+                  )
+                : const Text('Cancel series'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _cancelSeries() async {
+    setState(() => _cancelling = true);
+    try {
+      await ref.read(groupsRepositoryProvider).cancelRecurringSeries(widget.groupId, widget.series.id);
+      ref.invalidate(groupReservationsProvider(widget.groupId));
+      ref.invalidate(groupChoresProvider(widget.groupId));
+      ref.invalidate(groupMyRecurringSeriesProvider(widget.groupId));
+    } on ApiException catch (e) {
+      if (mounted) showAppSnackBar(context, e.message);
+    } finally {
+      if (mounted) setState(() => _cancelling = false);
+    }
+  }
+}
+
+const _weekdayShortLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+String _weekdayShortLabel(int weekday) => _weekdayShortLabels[weekday];
+
+/// In-app banner for a pending urgent access request addressed to the
+/// current user — same visual shape as GroupDetailPage's nudge banner,
+/// kept local to this screen since that's where the context (which
+/// space, whose booking) actually lives.
+class _UrgentAccessBanner extends StatelessWidget {
+  const _UrgentAccessBanner({
+    required this.request,
+    required this.requesterName,
+    required this.spaceName,
+    required this.onDismiss,
+  });
+
+  final UrgentAccessRequest request;
+  final String requesterName;
+  final String spaceName;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        width: double.infinity,
+        padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.md.h),
+        decoration: BoxDecoration(
+          color: c.accentTint,
+          borderRadius: BorderRadius.circular(Radii.md.r),
+          border: Border.all(color: c.accentRing),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                '$requesterName needs $spaceName for 5 minutes.',
+                style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ),
+            SizedBox(width: Space.sm.w),
+            GestureDetector(
+              onTap: onDismiss,
+              child: Icon(Icons.close, color: c.ink2, size: 18.r),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

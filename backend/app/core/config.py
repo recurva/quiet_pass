@@ -60,10 +60,20 @@ class Settings(BaseSettings):
     # app/services/firebase_auth_admin_service.py.
     firebase_admin_use_runtime_service_account: bool = False
 
-    # Reservations: booking rules for the base layer (no recurring bookings
-    # or emergency override yet).
+    # Reservations: booking rules for the base layer.
     reservation_buffer_minutes: int = 15  # gap required between bookings on the same space
-    reservation_max_advance_days: int = 7  # how far ahead a booking can be made
+    reservation_max_advance_days: int = 7  # how far ahead a single ad-hoc booking can be made
+
+    # Recurring weekly bookings. The horizon is the recurring-specific
+    # "max advance" bound — occurrences are materialized up front for this
+    # many weeks, not governed by reservation_max_advance_days (see
+    # recurring_service.py's module docstring for why).
+    recurring_series_horizon_weeks: int = 8
+    recurring_series_max_slots_per_week: int = 3  # per user per group, across all their series
+
+    # Emergency override ("urgent access request"): per (requester, holder)
+    # pair, same atomic SET-NX cooldown shape as quiet_pulse_cooldown_seconds.
+    urgent_access_cooldown_seconds: int = 300  # 5 min between one requester's asks to one holder
 
 
 @lru_cache

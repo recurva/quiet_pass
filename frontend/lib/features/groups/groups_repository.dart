@@ -295,4 +295,64 @@ class GroupsRepository {
     );
     return WifiCredentials.fromJson(json as Map<String, dynamic>);
   }
+
+  /// Creates a recurring series and books every free occurrence in the
+  /// horizon up front. [result.skipped] lists any occurrence that lost to
+  /// an existing booking — the series and its free occurrences are still
+  /// created regardless; see the backend's recurring_service.py.
+  Future<RecurringSeriesCreateResult> createRecurringSeries(
+    String groupId,
+    String spaceId, {
+    required List<int> weekdays,
+    required int startHourUtc,
+    required int startMinuteUtc,
+    required int durationMinutes,
+  }) async {
+    final json = await _client.post(
+      '/groups/$groupId/spaces/$spaceId/recurring-series',
+      body: {
+        'weekdays': weekdays,
+        'start_hour_utc': startHourUtc,
+        'start_minute_utc': startMinuteUtc,
+        'duration_minutes': durationMinutes,
+      },
+    );
+    return RecurringSeriesCreateResult.fromJson(json as Map<String, dynamic>);
+  }
+
+  /// The caller's own recurring series only — same "view your own stuff"
+  /// scope the backend enforces.
+  Future<List<AppRecurringSeries>> fetchMyRecurringSeries(String groupId) async {
+    final json = await _client.get('/groups/$groupId/recurring-series');
+    return (json as List<dynamic>)
+        .map((entry) => AppRecurringSeries.fromJson(entry as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Cancels every future occurrence of a series plus the series itself.
+  /// To cancel just one occurrence, use [cancelReservation] instead.
+  Future<void> cancelRecurringSeries(String groupId, String seriesId) async {
+    await _client.delete('/groups/$groupId/recurring-series/$seriesId');
+  }
+
+  /// Cancels a single occurrence — an ad-hoc booking or one occurrence of
+  /// a recurring series; the series itself (and its other occurrences)
+  /// are untouched.
+  Future<void> cancelReservation(String groupId, String reservationId) async {
+    await _client.delete('/groups/$groupId/reservations/$reservationId');
+  }
+
+  /// Sends a polite "urgent 5-minute access" notification to a
+  /// reservation's current holder. Never cancels or modifies the booking
+  /// itself — see the backend's urgent_access_service.py.
+  Future<UrgentAccessRequest> requestUrgentAccess(
+    String groupId,
+    String spaceId,
+    String reservationId,
+  ) async {
+    final json = await _client.post(
+      '/groups/$groupId/spaces/$spaceId/reservations/$reservationId/urgent-access-request',
+    );
+    return UrgentAccessRequest.fromJson(json as Map<String, dynamic>);
+  }
 }
