@@ -226,8 +226,8 @@ class WifiPage extends ConsumerWidget {
           ),
           SizedBox(height: Space.md.h),
           Text(wifi.ssid, style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600)),
-          SizedBox(height: 2.h),
-          Text('Scan to join', style: context.text.bodySmall?.copyWith(color: c.ink3)),
+          SizedBox(height: Space.xs.h),
+          _PasswordReveal(password: wifi.password),
           if (isAdmin) ...[
             SizedBox(height: Space.md.h),
             SizedBox(
@@ -259,6 +259,44 @@ class WifiPage extends ConsumerWidget {
     } on ApiException catch (e) {
       if (context.mounted) showAppSnackBar(context, e.message);
     }
+  }
+}
+
+/// "Tap to reveal password" caption under the QR, per the mockup — purely
+/// a local show/hide toggle, not a new permission or API call: the
+/// password is already in [wifi] (it's what the QR itself encodes), this
+/// just controls whether the screen also prints it as text.
+class _PasswordReveal extends StatefulWidget {
+  const _PasswordReveal({required this.password});
+
+  final String password;
+
+  @override
+  State<_PasswordReveal> createState() => _PasswordRevealState();
+}
+
+class _PasswordRevealState extends State<_PasswordReveal> {
+  bool _revealed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return PressFeedback(
+      onTap: () {
+        Haptics.selection();
+        setState(() => _revealed = !_revealed);
+      },
+      child: AnimatedValueSwitcher(
+        value: _revealed,
+        builder: (context) => Text(
+          _revealed ? widget.password : 'Tap to reveal password',
+          style: context.text.bodySmall?.copyWith(
+            color: _revealed ? c.ink : c.ink3,
+            fontWeight: _revealed ? FontWeight.w600 : FontWeight.w400,
+          ),
+        ),
+      ),
+    );
   }
 }
 
