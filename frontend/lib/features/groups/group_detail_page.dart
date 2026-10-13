@@ -7,6 +7,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/api_client.dart';
+import '../../core/local_time.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_snackbar.dart';
 import '../../theme/avatar.dart';
@@ -24,6 +25,7 @@ import 'house_tools_sheet.dart';
 import 'nudge_wire.dart';
 import 'quiet_pulse_sheet.dart';
 import 'spaces_page.dart';
+import 'status_picker_sheet.dart';
 import 'wifi_page.dart';
 
 enum _MemberAction { promote, demote, remove }
@@ -144,7 +146,7 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
                     SizedBox(height: Space.base.h),
                     _spacesEntry(context),
                     SizedBox(height: Space.lg.h),
-                    _yourStatusCard(context, myEffectiveStatus),
+                    _yourStatusCard(context, myEffectiveStatus, myEntry?.expiresAt),
                     SizedBox(height: Space.base.h),
                     _dinnerCard(context, dinnerAsync, members, me?.id),
                     SizedBox(height: Space.base.h),
@@ -386,10 +388,20 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
     await Share.share('Join my house on QuietPass. Code: ${widget.group.inviteCode}');
   }
 
-  Widget _yourStatusCard(BuildContext context, HouseStatus myEffectiveStatus) {
+  Widget _yourStatusCard(BuildContext context, HouseStatus myEffectiveStatus, DateTime? myExpiresAt) {
     final c = context.colors;
     final displayedStatus = _pendingStatus ?? myEffectiveStatus;
-    final rule = statusDurationRules[displayedStatus];
+    final style = c.statusOf(displayedStatus);
+
+    String caption;
+    if (displayedStatus == HouseStatus.openToChat) {
+      caption = 'Free to talk · no timer';
+    } else {
+      final expiresAt = _pendingStatus != null && _pendingDurationMinutes != null
+          ? DateTime.now().add(Duration(minutes: _pendingDurationMinutes!))
+          : myExpiresAt;
+      caption = expiresAt == null ? displayedStatus.label : 'Until ${expiresAt.toLocalTimeLabel()}';
+    }
 
     return Container(
       width: double.infinity,
@@ -402,40 +414,67 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'YOUR STATUS',
-            style: context.text.labelLarge?.copyWith(
-              color: c.ink3,
-              fontSize: 11.sp,
-              letterSpacing: 0.5,
-            ),
-          ),
-          SizedBox(height: Space.md.h),
-          Wrap(
-            spacing: Space.sm.w,
-            runSpacing: Space.sm.h,
+          Row(
             children: [
-              for (final status in HouseStatus.values)
-                StatusChip(
-                  status: status,
-                  selected: displayedStatus == status,
-                  onTap: () => _selectStatus(status),
+              Text(
+                'YOUR STATUS',
+                style: context.text.labelLarge?.copyWith(
+                  color: c.ink3,
+                  fontSize: 11.sp,
+                  letterSpacing: 0.5,
                 ),
+              ),
+              const Spacer(),
+              PressFeedback(
+                onTap: () => _openStatusPicker(context, displayedStatus),
+                child: Text(
+                  'Change',
+                  style: context.text.bodyMedium?.copyWith(color: c.accent, fontWeight: FontWeight.w600),
+                ),
+              ),
             ],
           ),
-          // Open to Chat has no duration concept at all — no row shown.
-          if (rule != null) ...[
-            SizedBox(height: Space.sm.h),
-            DurationSlider(
-              allowedMinutes: rule.allowedMinutes,
-              selectedMinutes: _pendingDurationMinutes ?? rule.defaultMinutes,
-              formatLabel: formatDurationMinutes,
-              onChangeEnd: (minutes) => _setStatus(displayedStatus, minutes),
+          SizedBox(height: Space.md.h),
+          AnimatedValueSwitcher(
+            value: displayedStatus,
+            builder: (context) => Container(
+              padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.sm.h),
+              decoration: BoxDecoration(
+                color: c.accent,
+                borderRadius: BorderRadius.circular(Radii.pill.r),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 8.r,
+                    height: 8.r,
+                    decoration: BoxDecoration(color: c.onAccent, shape: BoxShape.circle),
+                  ),
+                  SizedBox(width: Space.sm.w),
+                  Text(
+                    displayedStatus.label,
+                    style: context.text.labelLarge?.copyWith(color: c.onAccent, fontWeight: FontWeight.w700),
+                  ),
+                ],
+              ),
             ),
-          ],
+          ),
+          SizedBox(height: Space.xs.h),
+          Text(caption, style: context.text.bodySmall?.copyWith(color: style.ink)),
         ],
       ),
     );
+  }
+
+  Future<void> _openStatusPicker(BuildContext context, HouseStatus displayedStatus) async {
+    final result = await showStatusPickerSheet(
+      context,
+      current: displayedStatus,
+      currentDurationMinutes: _pendingDurationMinutes ?? statusDurationRules[displayedStatus]?.defaultMinutes,
+    );
+    if (result == null || !mounted) return; // dismissed without confirming
+    await _setStatus(result.$1, result.$2);
   }
 
   /// Who's home for dinner tonight, per house. A daily, per-member toggle —
@@ -939,20 +978,6 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
         ),
       ),
     );
-  }
-
-  /// Tapping a status chip: Open to Chat applies immediately (no duration
-  /// concept). Any other status applies immediately too, at its default
-  /// duration — the picker row then lets the caller change to a different
-  /// allowed preset, which re-applies via [_setStatus] again. This keeps
-  /// the existing snappy "tap chip → set" feel while still satisfying the
-  /// spec's "pre-select the default but allow any allowed option."
-  Future<void> _selectStatus(HouseStatus status) async {
-    if (status == HouseStatus.openToChat) {
-      await _setStatus(status, null);
-      return;
-    }
-    await _setStatus(status, statusDurationRules[status]!.defaultMinutes);
   }
 
   Future<void> _setStatus(HouseStatus status, int? durationMinutes) async {
