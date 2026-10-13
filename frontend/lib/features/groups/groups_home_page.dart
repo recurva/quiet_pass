@@ -6,6 +6,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../../core/api_client.dart';
 import '../../theme/app_snackbar.dart';
 import '../../theme/dimens.dart';
+import '../../theme/motion.dart';
 import '../../theme/theme_x.dart';
 import '../auth/auth_controller.dart';
 import '../profile/profile_page.dart';
@@ -275,7 +276,10 @@ class _GroupList extends StatelessWidget {
     return ListView.separated(
       itemCount: groups.length,
       separatorBuilder: (_, __) => SizedBox(height: Space.sm.h),
-      itemBuilder: (context, index) => _GroupTile(group: groups[index]),
+      itemBuilder: (context, index) {
+        final group = groups[index];
+        return FadeSlideIn(key: ValueKey('group-${group.id}'), child: _GroupTile(group: group));
+      },
     );
   }
 }

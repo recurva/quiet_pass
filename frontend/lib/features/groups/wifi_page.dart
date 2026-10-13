@@ -6,6 +6,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../../core/api_client.dart';
 import '../../theme/app_snackbar.dart';
 import '../../theme/dimens.dart';
+import '../../theme/motion.dart';
 import '../../theme/theme_x.dart';
 import 'group_models.dart';
 import 'groups_providers.dart';
@@ -253,6 +254,7 @@ class WifiPage extends ConsumerWidget {
 
     try {
       await ref.read(groupsRepositoryProvider).setWifiCredentials(groupId, ssid, password);
+      Haptics.commit();
       ref.invalidate(groupWifiCredentialsProvider(groupId));
     } on ApiException catch (e) {
       if (context.mounted) showAppSnackBar(context, e.message);

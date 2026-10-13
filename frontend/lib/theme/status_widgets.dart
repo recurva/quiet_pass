@@ -4,6 +4,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../core/local_time.dart';
 import 'app_colors.dart';
 import 'dimens.dart';
+import 'motion.dart';
 import 'theme_x.dart';
 
 /// Selectable status chip, shared between the foundation preview and the
@@ -24,11 +25,11 @@ class StatusChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final style = c.statusOf(status);
-    return GestureDetector(
+    return PressFeedback(
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        curve: const Cubic(0.2, 0, 0, 1),
+        duration: Motion.state,
+        curve: Motion.curve,
         padding:
             EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.sm.h),
         decoration: BoxDecoration(
@@ -214,11 +215,11 @@ class DurationChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    return GestureDetector(
+    return PressFeedback(
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        curve: const Cubic(0.2, 0, 0, 1),
+        duration: Motion.state,
+        curve: Motion.curve,
         padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.xs.h),
         decoration: BoxDecoration(
           color: selected ? c.accent : c.surface2,

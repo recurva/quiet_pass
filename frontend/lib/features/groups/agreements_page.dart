@@ -5,6 +5,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../../core/api_client.dart';
 import '../../theme/app_snackbar.dart';
 import '../../theme/dimens.dart';
+import '../../theme/motion.dart';
 import '../../theme/theme_x.dart';
 import 'agreement_sheet.dart';
 import 'group_models.dart';
@@ -73,10 +74,13 @@ class AgreementsPage extends ConsumerWidget {
                       for (final agreement in agreements)
                         Padding(
                           padding: EdgeInsets.only(bottom: Space.sm.h),
-                          child: _AgreementCard(
-                            groupId: groupId,
-                            agreement: agreement,
-                            isAdmin: isAdmin,
+                          child: FadeSlideIn(
+                            key: ValueKey('agreement-${agreement.id}'),
+                            child: _AgreementCard(
+                              groupId: groupId,
+                              agreement: agreement,
+                              isAdmin: isAdmin,
+                            ),
                           ),
                         ),
                     ],
@@ -124,6 +128,7 @@ class AgreementsPage extends ConsumerWidget {
 
     try {
       await ref.read(groupsRepositoryProvider).createAgreement(groupId, title, content);
+      Haptics.commit();
       ref.invalidate(groupAgreementsProvider(groupId));
     } on ApiException catch (e) {
       if (context.mounted) showAppSnackBar(context, e.message);
@@ -193,6 +198,7 @@ class _AgreementCard extends ConsumerWidget {
 
     try {
       await ref.read(groupsRepositoryProvider).updateAgreement(groupId, agreement.id, title, content);
+      Haptics.commit();
       ref.invalidate(groupAgreementsProvider(groupId));
     } on ApiException catch (e) {
       if (context.mounted) showAppSnackBar(context, e.message);
@@ -202,6 +208,7 @@ class _AgreementCard extends ConsumerWidget {
   Future<void> _remove(BuildContext context, WidgetRef ref) async {
     try {
       await ref.read(groupsRepositoryProvider).deleteAgreement(groupId, agreement.id);
+      Haptics.commit();
       ref.invalidate(groupAgreementsProvider(groupId));
     } on ApiException catch (e) {
       if (context.mounted) showAppSnackBar(context, e.message);

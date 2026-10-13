@@ -5,7 +5,9 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../core/api_client.dart';
 import '../../theme/app_snackbar.dart';
+import '../../theme/avatar.dart';
 import '../../theme/dimens.dart';
+import '../../theme/motion.dart';
 import '../../theme/theme_x.dart';
 import '../auth/auth_controller.dart';
 import '../groups/groups_providers.dart';
@@ -100,82 +102,71 @@ class _AccountCardState extends ConsumerState<_AccountCard> {
         borderRadius: BorderRadius.circular(Radii.md.r),
         border: Border.all(color: c.line),
       ),
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.name,
-                      style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+          PressFeedback(
+            onTap: _busy ? null : _pickAndUpload,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Avatar(name: widget.name, photoUrl: widget.avatarUrl, size: 56.r),
+                Positioned(
+                  right: -2.r,
+                  bottom: -2.r,
+                  child: Container(
+                    padding: EdgeInsets.all(3.r),
+                    decoration: BoxDecoration(
+                      color: c.accent,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: c.surface, width: 2),
                     ),
-                    SizedBox(height: 2.h),
-                    Text(widget.phone, style: context.text.bodySmall),
-                  ],
-                ),
-              ),
-              IconButton(
-                onPressed: () => _editName(context, ref),
-                style: IconButton.styleFrom(
-                  backgroundColor: c.surface2,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sm.r)),
-                ),
-                icon: Icon(Icons.edit_outlined, color: c.ink2, size: 18.r),
-              ),
-            ],
-          ),
-          SizedBox(height: Space.md.h),
-          // TEMPORARY, Stage 1 only: plain functional avatar upload/remove
-          // so the backend endpoint can be tested on device before any
-          // redesign styling exists. Replaced entirely by the real Avatar
-          // widget in Stage 2/3 — not meant to match the mockups.
-          Text(
-            widget.avatarUrl ?? '(no avatar set)',
-            style: context.text.bodySmall?.copyWith(color: c.ink3),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          SizedBox(height: Space.sm.h),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: _busy ? null : _pickAndUpload,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: c.ink2,
-                    side: BorderSide(color: c.line2),
-                    padding: EdgeInsets.symmetric(vertical: Space.sm.h),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sm.r)),
-                  ),
-                  child: _busy
-                      ? SizedBox(
-                          width: 16.r,
-                          height: 16.r,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: c.ink2),
-                        )
-                      : const Text('Upload photo (test)'),
-                ),
-              ),
-              if (widget.avatarUrl != null) ...[
-                SizedBox(width: Space.sm.w),
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: _busy ? null : _remove,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: c.call.solid,
-                      side: BorderSide(color: c.call.solid),
-                      padding: EdgeInsets.symmetric(vertical: Space.sm.h),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sm.r)),
-                    ),
-                    child: const Text('Remove'),
+                    child: _busy
+                        ? SizedBox(
+                            width: 11.r,
+                            height: 11.r,
+                            child: CircularProgressIndicator(strokeWidth: 1.5, color: c.onAccent),
+                          )
+                        : Icon(Icons.camera_alt_outlined, size: 11.r, color: c.onAccent),
                   ),
                 ),
               ],
-            ],
+            ),
+          ),
+          SizedBox(width: Space.md.w),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.name,
+                  style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+                ),
+                SizedBox(height: 2.h),
+                Text(widget.phone, style: context.text.bodySmall),
+                if (widget.avatarUrl != null) ...[
+                  SizedBox(height: Space.xs.h),
+                  PressFeedback(
+                    onTap: _busy ? null : _remove,
+                    child: Text(
+                      'Remove photo',
+                      style: context.text.bodySmall?.copyWith(color: c.call.solid),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          PressFeedback(
+            onTap: () => _editName(context, ref),
+            child: Container(
+              padding: EdgeInsets.all(Space.sm.w),
+              decoration: BoxDecoration(
+                color: c.surface2,
+                borderRadius: BorderRadius.circular(Radii.sm.r),
+              ),
+              child: Icon(Icons.edit_outlined, color: c.ink2, size: 18.r),
+            ),
           ),
         ],
       ),
@@ -195,6 +186,7 @@ class _AccountCardState extends ConsumerState<_AccountCard> {
       final bytes = await picked.readAsBytes();
       await ref.read(groupsRepositoryProvider).uploadAvatar(bytes, picked.name);
       ref.invalidate(currentBackendUserProvider);
+      Haptics.commit();
     } on ApiException catch (e) {
       if (mounted) showAppSnackBar(context, e.message);
     } finally {
@@ -207,6 +199,7 @@ class _AccountCardState extends ConsumerState<_AccountCard> {
     try {
       await ref.read(groupsRepositoryProvider).removeAvatar();
       ref.invalidate(currentBackendUserProvider);
+      Haptics.commit();
     } on ApiException catch (e) {
       if (mounted) showAppSnackBar(context, e.message);
     } finally {

@@ -9,7 +9,9 @@ import 'package:share_plus/share_plus.dart';
 import '../../core/api_client.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_snackbar.dart';
+import '../../theme/avatar.dart';
 import '../../theme/dimens.dart';
+import '../../theme/motion.dart';
 import '../../theme/status_widgets.dart';
 import '../../theme/theme_x.dart';
 import 'agreements_page.dart';
@@ -18,6 +20,7 @@ import 'dinner_wire.dart';
 import 'group_models.dart';
 import 'groups_providers.dart';
 import 'house_status_wire.dart';
+import 'house_tools_sheet.dart';
 import 'nudge_wire.dart';
 import 'quiet_pulse_sheet.dart';
 import 'spaces_page.dart';
@@ -113,11 +116,14 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
                     for (final nudge in pendingNudges)
                       Padding(
                         padding: EdgeInsets.only(bottom: Space.sm.h),
-                        child: _NudgeBanner(
-                          nudge: nudge,
-                          onDismiss: () => ref
-                              .read(groupPendingNudgesProvider(widget.group.id).notifier)
-                              .dismiss(nudge.id),
+                        child: FadeSlideIn(
+                          key: ValueKey('nudge-${nudge.id}'),
+                          child: _NudgeBanner(
+                            nudge: nudge,
+                            onDismiss: () => ref
+                                .read(groupPendingNudgesProvider(widget.group.id).notifier)
+                                .dismiss(nudge.id),
+                          ),
                         ),
                       ),
                   ],
@@ -130,6 +136,13 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _header(context, myMembership),
+                    SizedBox(height: Space.sm.h),
+                    Padding(
+                      padding: EdgeInsets.only(left: 44.r),
+                      child: _inviteCodePill(context),
+                    ),
+                    SizedBox(height: Space.base.h),
+                    _spacesEntry(context),
                     SizedBox(height: Space.lg.h),
                     _yourStatusCard(context, myEffectiveStatus),
                     SizedBox(height: Space.base.h),
@@ -188,109 +201,127 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
     );
   }
 
-  /// Identity (back + name + actions) on its own row, the invite code
-  /// moved to a separate pill below with its own breathing room — these
-  /// used to be crammed into a single row (name, invite code, copy, share,
-  /// and both action icons all fighting for the same line), which read as
-  /// rushed/cluttered, especially on narrower phones.
+  /// Identity only: back, name, leave. Occasional-tool entry points used
+  /// to accumulate here as one pill per feature — that queue is gone now;
+  /// see [_toolsButton] and [_spacesEntry] for where those actions live
+  /// instead.
   Widget _header(BuildContext context, HouseMember? myMembership) {
     final c = context.colors;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Row(
       children: [
-        Row(
-          children: [
-            IconButton(
-              onPressed: () => Navigator.of(context).pop(),
-              style: IconButton.styleFrom(
-                backgroundColor: c.surface2,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sm.r)),
-              ),
-              icon: Icon(Icons.arrow_back, color: c.ink2, size: 20.r),
+        IconButton(
+          onPressed: () => Navigator.of(context).pop(),
+          style: IconButton.styleFrom(
+            backgroundColor: c.surface2,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sm.r)),
+          ),
+          icon: Icon(Icons.arrow_back, color: c.ink2, size: 20.r),
+        ),
+        SizedBox(width: Space.md.w),
+        Expanded(
+          child: Text(
+            widget.group.name,
+            style: context.text.titleLarge,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        SizedBox(width: Space.sm.w),
+        _toolsButton(context, myMembership),
+        if (myMembership != null) ...[
+          SizedBox(width: Space.sm.w),
+          IconButton(
+            onPressed: () => _leaveGroup(myMembership.membershipId),
+            style: IconButton.styleFrom(
+              backgroundColor: c.surface2,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sm.r)),
             ),
-            SizedBox(width: Space.md.w),
-            Expanded(
-              child: Text(
-                widget.group.name,
-                style: context.text.titleLarge,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            if (myMembership != null) ...[
-              SizedBox(width: Space.sm.w),
-              IconButton(
-                onPressed: () => _leaveGroup(myMembership.membershipId),
-                style: IconButton.styleFrom(
-                  backgroundColor: c.surface2,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sm.r)),
-                ),
-                icon: Icon(Icons.logout, color: c.call.solid, size: 20.r),
-              ),
-            ],
-          ],
-        ),
-        SizedBox(height: Space.sm.h),
-        Padding(
-          padding: EdgeInsets.only(left: 44.r),
-          child: _inviteCodePill(context),
-        ),
-        SizedBox(height: Space.sm.h),
-        Padding(
-          padding: EdgeInsets.only(left: 44.r),
-          child: _featuresRow(context, myMembership),
-        ),
+            icon: Icon(Icons.logout, color: c.call.solid, size: 20.r),
+          ),
+        ],
       ],
     );
   }
 
-  /// Entry points to this house's standalone feature screens — kept off
-  /// the identity row above (back/name/leave) on purpose, the same reason
-  /// the invite code moved to its own pill: cramming every action icon
-  /// into one line reads as rushed, and this row only grows as more
-  /// features (agreements here, Wi-Fi/QR next) get added.
-  Widget _featuresRow(BuildContext context, HouseMember? myMembership) {
+  /// Opens the house-tools sheet (Agreements, Guest Wi-Fi today) — the one
+  /// icon that replaced two persistent pills on the main screen. Future
+  /// occasional features get a row in that sheet, not a new icon here.
+  Widget _toolsButton(BuildContext context, HouseMember? myMembership) {
+    final c = context.colors;
+    return IconButton(
+      onPressed: () => _openHouseTools(context, myMembership),
+      style: IconButton.styleFrom(
+        backgroundColor: c.surface2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sm.r)),
+      ),
+      icon: Icon(Icons.apps_rounded, color: c.ink2, size: 20.r),
+    );
+  }
+
+  Future<void> _openHouseTools(BuildContext context, HouseMember? myMembership) async {
     final isAdmin = myMembership?.role == 'admin';
-    return Wrap(
-      spacing: Space.sm.w,
-      runSpacing: Space.sm.h,
-      children: [
-        _FeatureIconButton(
-          icon: Icons.meeting_room_outlined,
-          label: 'Spaces',
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => SpacesPage(groupId: widget.group.id, groupName: widget.group.name),
+    final tool = await showHouseToolsSheet(context);
+    if (tool == null || !context.mounted) return;
+
+    switch (tool) {
+      case HouseTool.agreements:
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => AgreementsPage(
+              groupId: widget.group.id,
+              groupName: widget.group.name,
+              isAdmin: isAdmin,
             ),
           ),
+        );
+      case HouseTool.wifi:
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => WifiPage(
+              groupId: widget.group.id,
+              groupName: widget.group.name,
+              isAdmin: isAdmin,
+            ),
+          ),
+        );
+    }
+  }
+
+  /// Booking a space happens a few times a week in a shared house — more
+  /// often than the occasional tools tucked behind [_toolsButton] — so it
+  /// stays directly on screen as its own clear entry, not buried in a
+  /// sheet.
+  Widget _spacesEntry(BuildContext context) {
+    final c = context.colors;
+    return InkWell(
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => SpacesPage(groupId: widget.group.id, groupName: widget.group.name),
         ),
-        _FeatureIconButton(
-          icon: Icons.push_pin_outlined,
-          label: 'Agreements',
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => AgreementsPage(
-                groupId: widget.group.id,
-                groupName: widget.group.name,
-                isAdmin: isAdmin,
+      ),
+      borderRadius: BorderRadius.circular(Radii.md.r),
+      child: Container(
+        width: double.infinity,
+        padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.md.h),
+        decoration: BoxDecoration(
+          color: c.surface,
+          borderRadius: BorderRadius.circular(Radii.md.r),
+          border: Border.all(color: c.line),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.meeting_room_outlined, size: 20.r, color: c.ink2),
+            SizedBox(width: Space.md.w),
+            Expanded(
+              child: Text(
+                'Spaces',
+                style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
               ),
             ),
-          ),
+            Icon(Icons.chevron_right, size: 20.r, color: c.ink3),
+          ],
         ),
-        _FeatureIconButton(
-          icon: Icons.qr_code_rounded,
-          label: 'Guest Wi-Fi',
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => WifiPage(
-                groupId: widget.group.id,
-                groupName: widget.group.name,
-                isAdmin: isAdmin,
-              ),
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 
@@ -299,7 +330,7 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        GestureDetector(
+        PressFeedback(
           onTap: () => _copyInviteCode(context),
           child: Container(
             padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.xs.h),
@@ -322,7 +353,7 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
           ),
         ),
         SizedBox(width: Space.sm.w),
-        GestureDetector(
+        PressFeedback(
           onTap: () => _shareInviteCode(context),
           child: Container(
             padding: EdgeInsets.all(Space.xs.w),
@@ -339,6 +370,7 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
   }
 
   Future<void> _copyInviteCode(BuildContext context) async {
+    Haptics.selection();
     await Clipboard.setData(ClipboardData(text: widget.group.inviteCode));
     if (context.mounted) showAppSnackBar(context, 'Invite code copied.');
   }
@@ -484,9 +516,12 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
                     ],
                   ),
                   SizedBox(height: Space.md.h),
-                  Text(
-                    '${summary.homeCount} home · ${summary.stayingOutCount} out',
-                    style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+                  AnimatedValueSwitcher(
+                    value: (summary.homeCount, summary.stayingOutCount),
+                    builder: (context) => Text(
+                      '${summary.homeCount} home · ${summary.stayingOutCount} out',
+                      style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+                    ),
                   ),
                   if (homeNames.isNotEmpty) ...[
                     SizedBox(height: 2.h),
@@ -511,8 +546,10 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
 
   Future<void> _setDinnerStatus(DinnerStatus status) async {
     setState(() => _pendingDinnerStatus = status);
+    Haptics.selection();
     try {
       await ref.read(groupsRepositoryProvider).setDinnerStatus(widget.group.id, status);
+      Haptics.commit();
       // Awaited, not fire-and-forget: clearing _pendingDinnerStatus before
       // the refetch actually lands meant the card briefly fell back to the
       // *old* cached summary (still showing the previous status) for one
@@ -596,6 +633,7 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
       await ref
           .read(groupsRepositoryProvider)
           .sendNudge(widget.group.id, NudgeType.quietPulse, durationMinutes: minutes);
+      Haptics.commit();
     } on ApiException catch (e) {
       if (mounted) showAppSnackBar(context, e.message);
     } finally {
@@ -607,6 +645,7 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
     setState(() => _sendingPreset = type);
     try {
       await ref.read(groupsRepositoryProvider).sendNudge(widget.group.id, type);
+      Haptics.commit();
     } on ApiException catch (e) {
       if (mounted) showAppSnackBar(context, e.message);
     } finally {
@@ -623,6 +662,7 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
       await ref
           .read(groupsRepositoryProvider)
           .sendNudge(widget.group.id, NudgeType.custom, message: message);
+      Haptics.commit();
     } on ApiException catch (e) {
       if (mounted) showAppSnackBar(context, e.message);
     } finally {
@@ -645,7 +685,9 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
     // "Leave house" (see _header), a deliberately separate, more visible
     // action rather than being buried in this per-row menu.
     final showMenu = canManage && !isMe;
-    return Container(
+    return FadeSlideIn(
+      key: ValueKey('member-${member.membershipId}'),
+      child: Container(
       width: double.infinity,
       padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.md.h),
       decoration: BoxDecoration(
@@ -664,19 +706,7 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
         children: [
           Row(
             children: [
-              Container(
-                width: 34.r,
-                height: 34.r,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(color: c.accent, shape: BoxShape.circle),
-                child: Text(
-                  member.user.displayName.characters.take(2).toString().toUpperCase(),
-                  style: context.text.labelLarge?.copyWith(
-                    color: c.onAccent,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
+              Avatar(name: member.user.displayName, photoUrl: member.user.avatarUrl, size: 34.r),
               SizedBox(width: Space.md.w),
               Expanded(
                 child: Column(
@@ -730,10 +760,15 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
             padding: EdgeInsets.only(left: 34.r + Space.md.w),
             child: Align(
               alignment: Alignment.centerLeft,
-              child: StatusBadge(status: effectiveStatus, expiresAt: effectiveExpiresAt),
+              child: AnimatedValueSwitcher(
+                value: (effectiveStatus, effectiveExpiresAt),
+                builder: (context) =>
+                    StatusBadge(status: effectiveStatus, expiresAt: effectiveExpiresAt),
+              ),
             ),
           ),
         ],
+      ),
       ),
     );
   }
@@ -874,47 +909,17 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
       _pendingStatus = status;
       _pendingDurationMinutes = durationMinutes;
     });
+    Haptics.selection();
     try {
       await ref
           .read(groupsRepositoryProvider)
           .setMyStatus(widget.group.id, status, durationMinutes: durationMinutes);
+      Haptics.commit();
     } on ApiException catch (e) {
       if (mounted) showAppSnackBar(context, e.message);
     } finally {
       if (mounted) setState(() => _pendingStatus = null);
     }
-  }
-}
-
-class _FeatureIconButton extends StatelessWidget {
-  const _FeatureIconButton({required this.icon, required this.label, required this.onTap});
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.xs.h),
-        decoration: BoxDecoration(
-          color: c.surface2,
-          borderRadius: BorderRadius.circular(Radii.pill.r),
-          border: Border.all(color: c.line2),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 15.r, color: c.ink2),
-            SizedBox(width: Space.xs.w),
-            Text(label, style: context.text.bodySmall?.copyWith(color: c.ink2)),
-          ],
-        ),
-      ),
-    );
   }
 }
 
@@ -928,9 +933,11 @@ class _DinnerChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    return GestureDetector(
+    return PressFeedback(
       onTap: onTap,
-      child: Container(
+      child: AnimatedContainer(
+        duration: Motion.state,
+        curve: Motion.curve,
         padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.sm.h),
         decoration: BoxDecoration(
           color: selected ? c.accentTint : c.surface2,
@@ -1008,7 +1015,7 @@ class _NudgeBanner extends StatelessWidget {
               ),
             ),
             SizedBox(width: Space.sm.w),
-            GestureDetector(
+            PressFeedback(
               onTap: onDismiss,
               child: Icon(Icons.close, color: c.ink2, size: 18.r),
             ),

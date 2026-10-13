@@ -5,6 +5,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../../core/api_client.dart';
 import '../../core/local_time.dart';
 import '../../theme/dimens.dart';
+import '../../theme/motion.dart';
 import '../../theme/theme_x.dart';
 import 'group_models.dart';
 import 'groups_providers.dart';
@@ -106,6 +107,7 @@ class _ChorePassSheetState extends ConsumerState<_ChorePassSheet> {
 
     try {
       await ref.read(groupsRepositoryProvider).markChoreDone(widget.chore.id);
+      Haptics.commit();
       ref.invalidate(groupChoresProvider(widget.groupId));
       if (mounted) setState(() => _done = true);
     } on ApiException catch (e) {

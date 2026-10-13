@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../theme/dimens.dart';
+import '../../theme/motion.dart';
 import '../../theme/theme_x.dart';
 
 /// What [showRecurringSeriesSheet] hands back: weekdays in the backend's
@@ -100,9 +101,12 @@ class _RecurringSeriesSheetState extends State<_RecurringSeriesSheet> {
                   _WeekdayChip(
                     label: _weekdayLabels[day],
                     selected: _selectedLocalWeekdays.contains(day),
-                    onTap: () => setState(() {
-                      if (!_selectedLocalWeekdays.remove(day)) _selectedLocalWeekdays.add(day);
-                    }),
+                    onTap: () {
+                      Haptics.selection();
+                      setState(() {
+                        if (!_selectedLocalWeekdays.remove(day)) _selectedLocalWeekdays.add(day);
+                      });
+                    },
                   ),
               ],
             ),
@@ -116,7 +120,7 @@ class _RecurringSeriesSheetState extends State<_RecurringSeriesSheet> {
               ),
             ),
             SizedBox(height: Space.sm.h),
-            GestureDetector(
+            PressFeedback(
               onTap: _pickTime,
               child: Container(
                 width: double.infinity,
@@ -152,7 +156,10 @@ class _RecurringSeriesSheetState extends State<_RecurringSeriesSheet> {
                     child: _DurationOption(
                       minutes: minutes,
                       selected: _minutes == minutes,
-                      onTap: () => setState(() => _minutes = minutes),
+                      onTap: () {
+                        Haptics.selection();
+                        setState(() => _minutes = minutes);
+                      },
                     ),
                   ),
                   if (minutes != 60) SizedBox(width: Space.sm.w),
@@ -235,9 +242,11 @@ class _WeekdayChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    return GestureDetector(
+    return PressFeedback(
       onTap: onTap,
-      child: Container(
+      child: AnimatedContainer(
+        duration: Motion.state,
+        curve: Motion.curve,
         padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.sm.h),
         decoration: BoxDecoration(
           color: selected ? c.accent : c.surface2,
@@ -266,9 +275,11 @@ class _DurationOption extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    return GestureDetector(
+    return PressFeedback(
       onTap: onTap,
-      child: Container(
+      child: AnimatedContainer(
+        duration: Motion.state,
+        curve: Motion.curve,
         padding: EdgeInsets.symmetric(vertical: Space.sm.h),
         alignment: Alignment.center,
         decoration: BoxDecoration(

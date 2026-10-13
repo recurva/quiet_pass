@@ -5,6 +5,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../../core/api_client.dart';
 import '../../core/local_time.dart';
 import '../../theme/dimens.dart';
+import '../../theme/motion.dart';
 import '../../theme/theme_x.dart';
 import 'group_models.dart';
 import 'groups_providers.dart';
@@ -87,7 +88,7 @@ class _BookingSheetState extends ConsumerState<_BookingSheet> {
               ),
             ),
             SizedBox(height: Space.sm.h),
-            GestureDetector(
+            PressFeedback(
               onTap: _pickStartTime,
               child: Container(
                 width: double.infinity,
@@ -123,7 +124,10 @@ class _BookingSheetState extends ConsumerState<_BookingSheet> {
                     child: _DurationOption(
                       minutes: minutes,
                       selected: _minutes == minutes,
-                      onTap: () => setState(() => _minutes = minutes),
+                      onTap: () {
+                        Haptics.selection();
+                        setState(() => _minutes = minutes);
+                      },
                     ),
                   ),
                   if (minutes != 60) SizedBox(width: Space.sm.w),
@@ -184,6 +188,7 @@ class _BookingSheetState extends ConsumerState<_BookingSheet> {
       final result = await ref
           .read(groupsRepositoryProvider)
           .createReservation(widget.groupId, widget.space.id, _startTime, _minutes);
+      Haptics.commit();
       if (mounted) Navigator.of(context).pop(result);
     } on ApiException catch (e) {
       setState(() => _error = e.message);
@@ -203,9 +208,11 @@ class _DurationOption extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    return GestureDetector(
+    return PressFeedback(
       onTap: onTap,
-      child: Container(
+      child: AnimatedContainer(
+        duration: Motion.state,
+        curve: Motion.curve,
         padding: EdgeInsets.symmetric(vertical: Space.sm.h),
         alignment: Alignment.center,
         decoration: BoxDecoration(

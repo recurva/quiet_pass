@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../theme/dimens.dart';
+import '../../theme/motion.dart';
 import '../../theme/theme_x.dart';
 
 /// Shows the quiet-pulse sheet: pick a duration, see the exact neutral
@@ -69,7 +70,10 @@ class _QuietPulseSheetState extends State<_QuietPulseSheet> {
                     child: _DurationOption(
                       minutes: minutes,
                       selected: _minutes == minutes,
-                      onTap: () => setState(() => _minutes = minutes),
+                      onTap: () {
+                        Haptics.selection();
+                        setState(() => _minutes = minutes);
+                      },
                     ),
                   ),
                   if (minutes != 60) SizedBox(width: Space.sm.w),
@@ -115,9 +119,11 @@ class _DurationOption extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    return GestureDetector(
+    return PressFeedback(
       onTap: onTap,
-      child: Container(
+      child: AnimatedContainer(
+        duration: Motion.state,
+        curve: Motion.curve,
         padding: EdgeInsets.symmetric(vertical: Space.sm.h),
         alignment: Alignment.center,
         decoration: BoxDecoration(

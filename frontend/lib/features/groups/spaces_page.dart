@@ -6,6 +6,7 @@ import '../../core/api_client.dart';
 import '../../core/local_time.dart';
 import '../../theme/app_snackbar.dart';
 import '../../theme/dimens.dart';
+import '../../theme/motion.dart';
 import '../../theme/theme_x.dart';
 import 'booking_sheet.dart';
 import 'chore_pass_sheet.dart';
@@ -99,17 +100,20 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
                 for (final request in pendingUrgentRequests)
                   Padding(
                     padding: EdgeInsets.only(bottom: Space.sm.h),
-                    child: _UrgentAccessBanner(
-                      request: request,
-                      requesterName: namesById[request.requesterId] ?? 'A housemate',
-                      spaceName: (spacesAsync.valueOrNull ?? const [])
-                              .where((s) => s.id == request.spaceId)
-                              .firstOrNull
-                              ?.name ??
-                          'a space',
-                      onDismiss: () => ref
-                          .read(groupPendingUrgentAccessRequestsProvider(groupId).notifier)
-                          .dismiss(request.reservationId, request.requesterId),
+                    child: FadeSlideIn(
+                      key: ValueKey('urgent-${request.reservationId}-${request.requesterId}'),
+                      child: _UrgentAccessBanner(
+                        request: request,
+                        requesterName: namesById[request.requesterId] ?? 'A housemate',
+                        spaceName: (spacesAsync.valueOrNull ?? const [])
+                                .where((s) => s.id == request.spaceId)
+                                .firstOrNull
+                                ?.name ??
+                            'a space',
+                        onDismiss: () => ref
+                            .read(groupPendingUrgentAccessRequestsProvider(groupId).notifier)
+                            .dismiss(request.reservationId, request.requesterId),
+                      ),
                     ),
                   ),
               ],
@@ -185,7 +189,10 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
                       for (final chore in mine)
                         Padding(
                           padding: EdgeInsets.only(bottom: Space.sm.h),
-                          child: _ChoreRow(groupId: groupId, chore: chore),
+                          child: FadeSlideIn(
+                            key: ValueKey('chore-${chore.id}'),
+                            child: _ChoreRow(groupId: groupId, chore: chore),
+                          ),
                         ),
                     ],
                   );
@@ -227,9 +234,12 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
                       for (final chore in others)
                         Padding(
                           padding: EdgeInsets.only(bottom: Space.sm.h),
-                          child: _OtherChoreRow(
-                            chore: chore,
-                            assigneeName: namesById[chore.userId] ?? 'A housemate',
+                          child: FadeSlideIn(
+                            key: ValueKey('other-chore-${chore.id}'),
+                            child: _OtherChoreRow(
+                              chore: chore,
+                              assigneeName: namesById[chore.userId] ?? 'A housemate',
+                            ),
                           ),
                         ),
                     ],
@@ -270,10 +280,13 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
                       for (final s in series)
                         Padding(
                           padding: EdgeInsets.only(bottom: Space.sm.h),
-                          child: _RecurringSeriesRow(
-                            groupId: groupId,
-                            series: s,
-                            spaceName: spaceNamesById[s.spaceId] ?? 'A space',
+                          child: FadeSlideIn(
+                            key: ValueKey('series-${s.id}'),
+                            child: _RecurringSeriesRow(
+                              groupId: groupId,
+                              series: s,
+                              spaceName: spaceNamesById[s.spaceId] ?? 'A space',
+                            ),
                           ),
                         ),
                     ],
@@ -389,14 +402,17 @@ class _SpaceCard extends ConsumerWidget {
             for (final reservation in sorted)
               Padding(
                 padding: EdgeInsets.only(bottom: Space.xs.h),
-                child: _ReservationRow(
-                  groupId: groupId,
-                  space: space,
-                  reservation: reservation,
-                  holderName: namesById[reservation.userId] ?? 'A housemate',
-                  isMine: myUserId != null && reservation.userId == myUserId,
-                  canCancel: (myUserId != null && reservation.userId == myUserId) || isAdmin,
-                  isActiveNow: !now.isBefore(reservation.startTime) && now.isBefore(reservation.endTime),
+                child: FadeSlideIn(
+                  key: ValueKey('reservation-${reservation.id}'),
+                  child: _ReservationRow(
+                    groupId: groupId,
+                    space: space,
+                    reservation: reservation,
+                    holderName: namesById[reservation.userId] ?? 'A housemate',
+                    isMine: myUserId != null && reservation.userId == myUserId,
+                    canCancel: (myUserId != null && reservation.userId == myUserId) || isAdmin,
+                    isActiveNow: !now.isBefore(reservation.startTime) && now.isBefore(reservation.endTime),
+                  ),
                 ),
               ),
           ],
@@ -431,6 +447,7 @@ class _SpaceCard extends ConsumerWidget {
             startMinuteUtc: input.startMinuteUtc,
             durationMinutes: input.durationMinutes,
           );
+      Haptics.commit();
       ref.invalidate(groupReservationsProvider(groupId));
       ref.invalidate(groupChoresProvider(groupId));
       ref.invalidate(groupMyRecurringSeriesProvider(groupId));
@@ -499,7 +516,7 @@ class _ReservationRowState extends ConsumerState<_ReservationRow> {
         if (!widget.isMine && widget.isActiveNow)
           Padding(
             padding: EdgeInsets.only(right: widget.canCancel ? Space.sm.w : 0),
-            child: GestureDetector(
+            child: PressFeedback(
               onTap: _busy ? null : _requestUrgentAccess,
               child: Text(
                 'Ask for 5 min',
@@ -511,7 +528,7 @@ class _ReservationRowState extends ConsumerState<_ReservationRow> {
             ),
           ),
         if (widget.canCancel)
-          GestureDetector(
+          PressFeedback(
             onTap: _busy ? null : _cancel,
             child: Icon(Icons.close, size: 16.r, color: c.ink3),
           ),
@@ -523,6 +540,7 @@ class _ReservationRowState extends ConsumerState<_ReservationRow> {
     setState(() => _busy = true);
     try {
       await ref.read(groupsRepositoryProvider).cancelReservation(widget.groupId, widget.reservation.id);
+      Haptics.commit();
       ref.invalidate(groupReservationsProvider(widget.groupId));
       ref.invalidate(groupChoresProvider(widget.groupId));
       ref.invalidate(groupMyRecurringSeriesProvider(widget.groupId));
@@ -541,6 +559,7 @@ class _ReservationRowState extends ConsumerState<_ReservationRow> {
             widget.space.id,
             widget.reservation.id,
           );
+      Haptics.commit();
       if (mounted) showAppSnackBar(context, 'Sent. ${widget.holderName} has been notified.');
     } on ApiException catch (e) {
       if (mounted) showAppSnackBar(context, e.message);
@@ -636,6 +655,7 @@ class _RecurringSeriesRowState extends ConsumerState<_RecurringSeriesRow> {
     setState(() => _cancelling = true);
     try {
       await ref.read(groupsRepositoryProvider).cancelRecurringSeries(widget.groupId, widget.series.id);
+      Haptics.commit();
       ref.invalidate(groupReservationsProvider(widget.groupId));
       ref.invalidate(groupChoresProvider(widget.groupId));
       ref.invalidate(groupMyRecurringSeriesProvider(widget.groupId));
@@ -690,7 +710,7 @@ class _UrgentAccessBanner extends StatelessWidget {
               ),
             ),
             SizedBox(width: Space.sm.w),
-            GestureDetector(
+            PressFeedback(
               onTap: onDismiss,
               child: Icon(Icons.close, color: c.ink2, size: 18.r),
             ),
@@ -756,6 +776,7 @@ class _ChoreRow extends ConsumerWidget {
   Future<void> _markDone(BuildContext context, WidgetRef ref) async {
     try {
       await ref.read(groupsRepositoryProvider).markChoreDone(chore.id);
+      Haptics.commit();
       ref.invalidate(groupChoresProvider(groupId));
     } on ApiException catch (e) {
       if (context.mounted) showAppSnackBar(context, e.message);
