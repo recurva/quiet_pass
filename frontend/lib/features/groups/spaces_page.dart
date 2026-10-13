@@ -207,18 +207,14 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
                         key: ValueKey('chore-${next.id}'),
                         child: _YourNextChoreCard(groupId: groupId, chore: next),
                       ),
-                      for (final chore in rest)
-                        Padding(
-                          padding: EdgeInsets.only(top: Space.sm.h),
-                          child: FadeSlideIn(
-                            key: ValueKey('chore-${chore.id}'),
-                            child: _ChoreRow(
-                              groupId: groupId,
-                              chore: chore,
-                              isWeekly: reservationById[chore.reservationId]?.recurringSeriesId != null,
-                            ),
-                          ),
-                        ),
+                      for (final row in _groupedChoreRows(
+                        chores: rest,
+                        reservationById: reservationById,
+                        topPadding: Space.sm.h,
+                        buildRow: (chore, isWeekly) =>
+                            _ChoreRow(groupId: groupId, chore: chore, isWeekly: isWeekly),
+                      ))
+                        row,
                     ],
                   );
                 },
@@ -277,19 +273,21 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
                           style: context.text.bodySmall?.copyWith(color: c.ink3),
                         )
                       else
-                        for (final chore in others)
-                        Padding(
-                          padding: EdgeInsets.only(bottom: Space.sm.h),
-                          child: FadeSlideIn(
-                            key: ValueKey('other-chore-${chore.id}'),
-                            child: _OtherChoreRow(
-                              chore: chore,
-                              assigneeName: namesById[chore.userId] ?? 'A housemate',
-                              assigneeAvatarUrl: avatarUrlById[chore.userId],
-                              isWeekly: reservationById[chore.reservationId]?.recurringSeriesId != null,
-                            ),
+                        for (final row in _groupedChoreRows(
+                          chores: others,
+                          reservationById: reservationById,
+                          topPadding: 0,
+                          bottomPadding: Space.sm.h,
+                          buildRow: (chore, isWeekly) => _OtherChoreRow(
+                            chore: chore,
+                            assigneeName: namesById[chore.userId] ?? 'A housemate',
+                            assigneeAvatarUrl: avatarUrlById[chore.userId],
+                            isWeekly: isWeekly,
                           ),
-                        ),
+                          assigneeNameOf: (chore) => namesById[chore.userId] ?? 'A housemate',
+                          assigneeAvatarUrlOf: (chore) => avatarUrlById[chore.userId],
+                        ))
+                          row,
                     ],
                   );
                 },
@@ -1062,6 +1060,169 @@ class _UrgentAccessBanner extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Builds one row per chore, except every chore whose reservation belongs
+/// to the same recurring booking series collapses into a single
+/// [_ChoreSeriesGroupRow] instead of one row each — the same bug as
+/// [_SpaceCard]'s reservation list, just for a recurring booking's chores
+/// (tied to a reservation via [AppChore.reservationId], cross-referenced
+/// against [reservationById] for [AppReservation.recurringSeriesId]). A
+/// chore from a one-off booking still renders exactly as before via
+/// [buildRow]. [chores] need not be pre-sorted; occurrences within a
+/// group are sorted here by [AppChore.dueAt] ascending.
+List<Widget> _groupedChoreRows({
+  required List<AppChore> chores,
+  required Map<String, AppReservation> reservationById,
+  required Widget Function(AppChore chore, bool isWeekly) buildRow,
+  double topPadding = 0,
+  double bottomPadding = 0,
+  String? Function(AppChore chore)? assigneeNameOf,
+  String? Function(AppChore chore)? assigneeAvatarUrlOf,
+}) {
+  final rows = <Widget>[];
+  final renderedSeriesIds = <String>{};
+  for (final chore in chores) {
+    final seriesId = reservationById[chore.reservationId]?.recurringSeriesId;
+    if (seriesId == null) {
+      rows.add(
+        Padding(
+          padding: EdgeInsets.only(top: topPadding, bottom: bottomPadding),
+          child: FadeSlideIn(
+            key: ValueKey('chore-row-${chore.id}'),
+            child: buildRow(chore, false),
+          ),
+        ),
+      );
+      continue;
+    }
+    if (renderedSeriesIds.contains(seriesId)) continue;
+    renderedSeriesIds.add(seriesId);
+    final groupChores = chores.where((c) => reservationById[c.reservationId]?.recurringSeriesId == seriesId).toList()
+      ..sort((a, b) => a.dueAt.compareTo(b.dueAt));
+    rows.add(
+      Padding(
+        padding: EdgeInsets.only(top: topPadding, bottom: bottomPadding),
+        child: FadeSlideIn(
+          key: ValueKey('chore-series-$seriesId'),
+          child: _ChoreSeriesGroupRow(
+            chores: groupChores,
+            assigneeName: assigneeNameOf?.call(groupChores.first),
+            assigneeAvatarUrl: assigneeAvatarUrlOf?.call(groupChores.first),
+            rowBuilder: (c) => buildRow(c, true),
+          ),
+        ),
+      ),
+    );
+  }
+  return rows;
+}
+
+/// Collapsed summary for every occurrence of a recurring chore (one per
+/// occurrence of its booking series) — mirrors [_SeriesReservationGroupRow]
+/// for the same bug class. Expanding shows each occurrence via
+/// [rowBuilder] (the caller's own [_ChoreRow] or a housemate's
+/// [_OtherChoreRow], unchanged), so marking a single occurrence done keeps
+/// calling [GroupsRepository.markChoreDone] exactly as before.
+class _ChoreSeriesGroupRow extends StatefulWidget {
+  const _ChoreSeriesGroupRow({
+    required this.chores,
+    required this.rowBuilder,
+    this.assigneeName,
+    this.assigneeAvatarUrl,
+  });
+
+  /// Every occurrence in the group, sorted by [AppChore.dueAt] ascending.
+  final List<AppChore> chores;
+  final Widget Function(AppChore chore) rowBuilder;
+  /// Null for the caller's own chores (no avatar needed); set for a
+  /// housemate's group, so the collapsed row still shows who it's for.
+  final String? assigneeName;
+  final String? assigneeAvatarUrl;
+
+  @override
+  State<_ChoreSeriesGroupRow> createState() => _ChoreSeriesGroupRowState();
+}
+
+class _ChoreSeriesGroupRowState extends State<_ChoreSeriesGroupRow> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final next = widget.chores.first;
+    final isDue = DateTime.now().toUtc().isAfter(next.dueAt);
+
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(Radii.md.r),
+        border: Border.all(color: c.line),
+      ),
+      child: Column(
+        children: [
+          PressFeedback(
+            onTap: () {
+              Haptics.selection();
+              setState(() => _expanded = !_expanded);
+            },
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.md.h),
+              child: Row(
+                children: [
+                  if (widget.assigneeName != null) ...[
+                    Avatar(name: widget.assigneeName!, photoUrl: widget.assigneeAvatarUrl, size: 32.r),
+                    SizedBox(width: Space.md.w),
+                  ],
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(next.template, style: context.text.bodyLarge),
+                        SizedBox(height: Space.xs.h),
+                        Row(
+                          children: [
+                            const _RecurringBadge(),
+                            SizedBox(width: Space.sm.w),
+                            Expanded(
+                              child: Text(
+                                '${widget.assigneeName != null ? '${widget.assigneeName} · ' : ''}'
+                                '${isDue ? 'Due now' : 'Next ${next.dueAt.toLocalDateTimeLabel()}'}'
+                                ' · ${widget.chores.length} upcoming',
+                                style: context.text.bodySmall?.copyWith(color: isDue ? c.call.solid : c.ink3),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  SizedBox(width: Space.sm.w),
+                  Icon(_expanded ? Icons.expand_less : Icons.expand_more, size: 18.r, color: c.ink3),
+                ],
+              ),
+            ),
+          ),
+          if (_expanded)
+            Padding(
+              padding: EdgeInsets.fromLTRB(Space.md.w, 0, Space.md.w, Space.md.h),
+              child: Column(
+                children: [
+                  for (final chore in widget.chores)
+                    Padding(
+                      padding: EdgeInsets.only(top: Space.sm.h),
+                      child: widget.rowBuilder(chore),
+                    ),
+                ],
+              ),
+            ),
+        ],
       ),
     );
   }
