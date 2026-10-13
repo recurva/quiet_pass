@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 import '../features/auth/auth_token_store.dart';
 import 'api_config.dart';
@@ -93,11 +94,24 @@ class ApiClient {
     required String fieldName,
     required List<int> bytes,
     required String filename,
+    String? contentType,
   }) {
     return _guarded(() async {
       final request = http.MultipartRequest('PUT', _uri(path))
         ..headers.addAll(await _authHeaderOnly())
-        ..files.add(http.MultipartFile.fromBytes(fieldName, bytes, filename: filename));
+        ..files.add(
+          http.MultipartFile.fromBytes(
+            fieldName,
+            bytes,
+            filename: filename,
+            // Without this, http defaults the part's Content-Type to
+            // application/octet-stream, which the backend's avatar upload
+            // rejects outright before it ever tries to decode the image —
+            // every upload failed with "That doesn't look like a valid
+            // image" regardless of the file actually being a valid photo.
+            contentType: contentType == null ? null : MediaType.parse(contentType),
+          ),
+        );
       final streamed = await _http.send(request);
       final response = await http.Response.fromStream(streamed);
       return _decode(response);

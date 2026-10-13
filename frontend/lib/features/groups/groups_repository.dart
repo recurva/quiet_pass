@@ -358,12 +358,13 @@ class GroupsRepository {
 
   /// Uploads (or replaces) the caller's own profile photo. Server-side
   /// resize/compress/EXIF-strip — this just sends the raw picked bytes.
-  Future<AppUser> uploadAvatar(List<int> bytes, String filename) async {
+  Future<AppUser> uploadAvatar(List<int> bytes, String filename, {String? mimeType}) async {
     final json = await _client.putMultipartFile(
       '/users/me/avatar',
       fieldName: 'file',
       bytes: bytes,
       filename: filename,
+      contentType: mimeType,
     );
     return AppUser.fromJson(json as Map<String, dynamic>);
   }

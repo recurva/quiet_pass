@@ -181,8 +181,15 @@ class _AccountCardState extends ConsumerState<_AccountCard> {
     setState(() => _busy = true);
     try {
       final bytes = await picked.readAsBytes();
-      await ref.read(groupsRepositoryProvider).uploadAvatar(bytes, picked.name);
+      await ref
+          .read(groupsRepositoryProvider)
+          .uploadAvatar(bytes, picked.name, mimeType: picked.mimeType ?? _guessMimeType(picked.name));
       ref.invalidate(currentBackendUserProvider);
+      // Every house's member list has its own cached snapshot of this
+      // user's avatar_url — invalidating the whole family (not just one
+      // groupId) is what makes the new photo show up in every housemates
+      // list without waiting for an unrelated member-list event.
+      ref.invalidate(groupMembersProvider);
       Haptics.commit();
     } on ApiException catch (e) {
       if (mounted) showAppSnackBar(context, e.message);
@@ -196,6 +203,7 @@ class _AccountCardState extends ConsumerState<_AccountCard> {
     try {
       await ref.read(groupsRepositoryProvider).removeAvatar();
       ref.invalidate(currentBackendUserProvider);
+      ref.invalidate(groupMembersProvider);
       Haptics.commit();
     } on ApiException catch (e) {
       if (mounted) showAppSnackBar(context, e.message);
@@ -496,4 +504,15 @@ class _DeleteAccountConfirmSheet extends StatelessWidget {
       ),
     );
   }
+}
+
+/// [XFile.mimeType] comes back null on some Android gallery pickers, which
+/// otherwise left the upload with no content type at all. Falls back to
+/// sniffing the file extension picked images always have one of.
+String? _guessMimeType(String filename) {
+  final lower = filename.toLowerCase();
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  return null;
 }

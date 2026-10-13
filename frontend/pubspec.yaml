@@ -55,6 +55,7 @@ dependencies:
 
   # Renders the QuietPass logo mark (assets/icon/quietpass_logo.svg) in-app
   flutter_svg: ^2.3.0
+  http_parser: ^4.1.2
 
 dev_dependencies:
   flutter_test:
