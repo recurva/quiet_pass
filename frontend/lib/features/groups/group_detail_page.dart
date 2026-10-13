@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/api_client.dart';
@@ -228,11 +229,23 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
         ),
         SizedBox(width: Space.md.w),
         Expanded(
-          child: Text(
-            widget.group.name,
-            style: context.text.titleLarge,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+          child: Row(
+            children: [
+              SvgPicture.asset(
+                'assets/icon/quietpass_logo.svg',
+                width: 20.r,
+                height: 20.r,
+              ),
+              SizedBox(width: Space.xs.w),
+              Expanded(
+                child: Text(
+                  widget.group.name,
+                  style: context.text.titleLarge,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
           ),
         ),
         SizedBox(width: Space.sm.w),

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- QuietPass logo — option C: Q "quiet pass" badge. Teal stroke mark.
+     Use the mark (the paths) on a soft tile for the app icon/splash, and the
+     mark alone (transparent) for the in-app header lockup. Accent #2FB9A9. -->
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- mark: Q ring + tail + centre dot, centred in a 512 box with breathing room -->
+  <g transform="translate(256,256)">
+    <!-- ring -->
+    <circle cx="0" cy="0" r="120" stroke="#2FB9A9" stroke-width="34"/>
+    <!-- tail (down-right), slightly brighter -->
+    <path d="M70 70 L150 150" stroke="#46CBBB" stroke-width="34" stroke-linecap="round"/>
+    <!-- centre dot -->
+    <circle cx="0" cy="0" r="34" fill="#2FB9A9"/>
+  </g>
+</svg>

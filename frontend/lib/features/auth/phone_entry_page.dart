@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../core/api_client.dart';
 import '../../core/validation.dart';
@@ -117,15 +118,13 @@ class _PhoneAuthPageState extends ConsumerState<_PhoneAuthPage> {
                 height: 48.r,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: c.accent,
+                  color: c.surface2,
                   borderRadius: BorderRadius.circular(Radii.sm.r),
                 ),
-                child: Text(
-                  'Q',
-                  style: context.text.titleLarge?.copyWith(
-                    color: c.onAccent,
-                    fontWeight: FontWeight.w700,
-                  ),
+                child: SvgPicture.asset(
+                  'assets/icon/quietpass_logo.svg',
+                  width: 28.r,
+                  height: 28.r,
                 ),
               ),
               SizedBox(height: Space.lg.h),
