@@ -479,22 +479,7 @@ class _SpaceCard extends ConsumerWidget {
             Text('Nothing booked.', style: context.text.bodySmall?.copyWith(color: c.ink3)),
           ] else ...[
             SizedBox(height: Space.sm.h),
-            for (final reservation in sorted)
-              Padding(
-                padding: EdgeInsets.only(bottom: Space.xs.h),
-                child: FadeSlideIn(
-                  key: ValueKey('reservation-${reservation.id}'),
-                  child: _ReservationRow(
-                    groupId: groupId,
-                    space: space,
-                    reservation: reservation,
-                    holderName: namesById[reservation.userId] ?? 'A housemate',
-                    isMine: myUserId != null && reservation.userId == myUserId,
-                    canCancel: (myUserId != null && reservation.userId == myUserId) || isAdmin,
-                    isActiveNow: !now.isBefore(reservation.startTime) && now.isBefore(reservation.endTime),
-                  ),
-                ),
-              ),
+            for (final row in _reservationRows(sorted, now)) row,
           ],
           SizedBox(height: Space.sm.h),
           Row(
@@ -538,6 +523,67 @@ class _SpaceCard extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  /// Builds one row per reservation, except every occurrence of the same
+  /// recurring series collapses into a single [_SeriesReservationGroupRow]
+  /// instead of one [_ReservationRow] each — a weekly series with many
+  /// future occurrences used to render as that many separate rows with
+  /// that many individual cancel buttons. A one-off booking
+  /// ([AppReservation.recurringSeriesId] null) still renders exactly as
+  /// before. [sorted] is assumed sorted by [AppReservation.startTime]
+  /// ascending, so a series's group row lands at the position of its
+  /// earliest occurrence here.
+  List<Widget> _reservationRows(List<AppReservation> sorted, DateTime now) {
+    final rows = <Widget>[];
+    final renderedSeriesIds = <String>{};
+    for (final reservation in sorted) {
+      final seriesId = reservation.recurringSeriesId;
+      if (seriesId == null) {
+        rows.add(
+          Padding(
+            padding: EdgeInsets.only(bottom: Space.xs.h),
+            child: FadeSlideIn(
+              key: ValueKey('reservation-${reservation.id}'),
+              child: _ReservationRow(
+                groupId: groupId,
+                space: space,
+                reservation: reservation,
+                holderName: namesById[reservation.userId] ?? 'A housemate',
+                isMine: myUserId != null && reservation.userId == myUserId,
+                canCancel: (myUserId != null && reservation.userId == myUserId) || isAdmin,
+                isActiveNow: !now.isBefore(reservation.startTime) && now.isBefore(reservation.endTime),
+              ),
+            ),
+          ),
+        );
+        continue;
+      }
+      if (renderedSeriesIds.contains(seriesId)) continue;
+      renderedSeriesIds.add(seriesId);
+      final groupReservations = sorted.where((r) => r.recurringSeriesId == seriesId).toList();
+      final holderId = groupReservations.first.userId;
+      rows.add(
+        Padding(
+          padding: EdgeInsets.only(bottom: Space.xs.h),
+          child: FadeSlideIn(
+            key: ValueKey('series-group-$seriesId'),
+            child: _SeriesReservationGroupRow(
+              groupId: groupId,
+              space: space,
+              seriesId: seriesId,
+              reservations: groupReservations,
+              holderName: namesById[holderId] ?? 'A housemate',
+              holderAvatarUrl: avatarUrlById[holderId],
+              canCancel: (myUserId != null && holderId == myUserId) || isAdmin,
+              myUserId: myUserId,
+              isAdmin: isAdmin,
+            ),
+          ),
+        ),
+      );
+    }
+    return rows;
   }
 
   Future<void> _book(BuildContext context, WidgetRef ref) async {
@@ -684,6 +730,187 @@ class _ReservationRowState extends ConsumerState<_ReservationRow> {
       if (mounted) showAppSnackBar(context, e.message);
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+}
+
+/// Every occurrence of one recurring booking series within a space,
+/// collapsed into a single summary row — the fix for the bug where a
+/// weekly series with many future occurrences rendered as that many
+/// separate [_ReservationRow]s. Collapsed by default; expanding shows
+/// each occurrence as its own unchanged [_ReservationRow] (so cancelling
+/// a single occurrence, or asking for urgent access on one that's
+/// currently active, both keep working exactly as before). The "Cancel
+/// series" action here calls the exact same [cancelRecurringSeries] used
+/// by [_RecurringSeriesRow] elsewhere on this page.
+class _SeriesReservationGroupRow extends ConsumerStatefulWidget {
+  const _SeriesReservationGroupRow({
+    required this.groupId,
+    required this.space,
+    required this.seriesId,
+    required this.reservations,
+    required this.holderName,
+    required this.holderAvatarUrl,
+    required this.canCancel,
+    required this.myUserId,
+    required this.isAdmin,
+  });
+
+  final String groupId;
+  final AppSpace space;
+  final String seriesId;
+  /// Every occurrence of this series in this space, sorted by
+  /// [AppReservation.startTime] ascending. All belong to the same booker
+  /// ([AppReservation.userId]), since a series has a single owner.
+  final List<AppReservation> reservations;
+  final String holderName;
+  final String? holderAvatarUrl;
+  /// Whether this viewer may cancel the whole series — same booker-or-admin
+  /// rule as an individual [_ReservationRow.canCancel].
+  final bool canCancel;
+  final String? myUserId;
+  final bool isAdmin;
+
+  @override
+  ConsumerState<_SeriesReservationGroupRow> createState() => _SeriesReservationGroupRowState();
+}
+
+class _SeriesReservationGroupRowState extends ConsumerState<_SeriesReservationGroupRow> {
+  bool _expanded = false;
+  bool _cancelling = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final now = DateTime.now().toUtc();
+    final upcoming = widget.reservations.where((r) => r.startTime.isAfter(now)).length;
+    final weekdayNumbers = widget.reservations.map((r) => r.startTime.toLocal().weekday).toSet().toList()
+      ..sort();
+    // AppReservation.startTime.weekday is Dart's 1=Monday..7=Sunday;
+    // _weekdayShortLabel expects the backend's 0=Monday..6=Sunday.
+    final dayLabels = weekdayNumbers.map((d) => _weekdayShortLabel(d - 1)).join(', ');
+    final first = widget.reservations.first;
+    final timeLabel = '${first.startTime.toLocalTimeLabel()} – ${first.endTime.toLocalTimeLabel()}';
+
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: c.surface2,
+        borderRadius: BorderRadius.circular(Radii.sm.r),
+        border: Border.all(color: c.line),
+      ),
+      child: Column(
+        children: [
+          PressFeedback(
+            onTap: () {
+              Haptics.selection();
+              setState(() => _expanded = !_expanded);
+            },
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.sm.h),
+              child: Row(
+                children: [
+                  Avatar(name: widget.holderName, photoUrl: widget.holderAvatarUrl, size: 22.r),
+                  SizedBox(width: Space.sm.w),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${widget.holderName} · $dayLabels · $timeLabel',
+                          style: context.text.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        SizedBox(height: 2.h),
+                        Row(
+                          children: [
+                            const _RecurringBadge(),
+                            SizedBox(width: Space.sm.w),
+                            Expanded(
+                              child: Text(
+                                '$upcoming upcoming',
+                                style: context.text.bodySmall?.copyWith(color: c.ink3),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  SizedBox(width: Space.sm.w),
+                  Icon(
+                    _expanded ? Icons.expand_less : Icons.expand_more,
+                    size: 18.r,
+                    color: c.ink3,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_expanded) ...[
+            Divider(height: 1, color: c.line),
+            Padding(
+              padding: EdgeInsets.fromLTRB(Space.md.w, Space.sm.h, Space.md.w, Space.sm.h),
+              child: Column(
+                children: [
+                  for (final reservation in widget.reservations)
+                    Padding(
+                      padding: EdgeInsets.only(bottom: Space.xs.h),
+                      child: _ReservationRow(
+                        groupId: widget.groupId,
+                        space: widget.space,
+                        reservation: reservation,
+                        holderName: widget.holderName,
+                        isMine: widget.myUserId != null && reservation.userId == widget.myUserId,
+                        canCancel:
+                            (widget.myUserId != null && reservation.userId == widget.myUserId) || widget.isAdmin,
+                        isActiveNow: !now.isBefore(reservation.startTime) && now.isBefore(reservation.endTime),
+                      ),
+                    ),
+                  if (widget.canCancel)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: OutlinedButton(
+                        onPressed: _cancelling ? null : _cancelSeries,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: c.call.solid,
+                          side: BorderSide(color: c.line2),
+                          padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.xs.h),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sm.r)),
+                        ),
+                        child: _cancelling
+                            ? SizedBox(
+                                width: 14.r,
+                                height: 14.r,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: c.call.solid),
+                              )
+                            : const Text('Cancel series'),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _cancelSeries() async {
+    setState(() => _cancelling = true);
+    try {
+      await ref.read(groupsRepositoryProvider).cancelRecurringSeries(widget.groupId, widget.seriesId);
+      Haptics.commit();
+      ref.invalidate(groupReservationsProvider(widget.groupId));
+      ref.invalidate(groupChoresProvider(widget.groupId));
+      ref.invalidate(groupMyRecurringSeriesProvider(widget.groupId));
+    } on ApiException catch (e) {
+      if (mounted) showAppSnackBar(context, e.message);
+    } finally {
+      if (mounted) setState(() => _cancelling = false);
     }
   }
 }
