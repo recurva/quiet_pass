@@ -151,8 +151,10 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
                     SizedBox(height: Space.base.h),
                     _dinnerCard(context, dinnerAsync, members, me?.id),
                     SizedBox(height: Space.base.h),
-                    _nudgesCard(context),
-                    SizedBox(height: Space.base.h),
+                    // Housemates right after Dinner — kept reachable
+                    // without a long scroll. The nudges card (Quiet Pulse
+                    // plus the quick-alerts row) moved below it; see that
+                    // method's own doc comment.
                     Text(
                       'HOUSEMATES',
                       style: context.text.labelLarge?.copyWith(
@@ -201,6 +203,8 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
                         },
                       ),
                     ),
+                    SizedBox(height: Space.base.h),
+                    _nudgesCard(context),
                   ],
                 ),
               ),
