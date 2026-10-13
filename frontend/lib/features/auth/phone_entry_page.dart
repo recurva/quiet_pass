@@ -112,7 +112,27 @@ class _PhoneAuthPageState extends ConsumerState<_PhoneAuthPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text('QuietPass', style: context.text.titleLarge),
+              Container(
+                width: 48.r,
+                height: 48.r,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: c.accent,
+                  borderRadius: BorderRadius.circular(Radii.sm.r),
+                ),
+                child: Text(
+                  'Q',
+                  style: context.text.titleLarge?.copyWith(
+                    color: c.onAccent,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              SizedBox(height: Space.lg.h),
+              Text(
+                widget.isSignUp ? 'Create account' : 'Welcome back',
+                style: context.text.titleLarge,
+              ),
               SizedBox(height: Space.xs.h),
               Text(
                 widget.isSignUp
@@ -122,6 +142,15 @@ class _PhoneAuthPageState extends ConsumerState<_PhoneAuthPage> {
               ),
               SizedBox(height: Space.xl.h),
               if (widget.isSignUp) ...[
+                Text(
+                  'YOUR NAME',
+                  style: context.text.labelLarge?.copyWith(
+                    color: c.ink3,
+                    fontSize: 11.sp,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                SizedBox(height: Space.sm.h),
                 TextField(
                   controller: _nameController,
                   textCapitalization: TextCapitalization.words,
@@ -153,6 +182,15 @@ class _PhoneAuthPageState extends ConsumerState<_PhoneAuthPage> {
                 ),
                 SizedBox(height: Space.md.h),
               ],
+              Text(
+                'MOBILE NUMBER',
+                style: context.text.labelLarge?.copyWith(
+                  color: c.ink3,
+                  fontSize: 11.sp,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              SizedBox(height: Space.sm.h),
               Container(
                 decoration: BoxDecoration(
                   color: c.surface2,
