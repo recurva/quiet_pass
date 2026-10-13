@@ -83,6 +83,14 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
       for (final member in membersAsync.valueOrNull ?? const [])
         member.user.id: member.user.avatarUrl,
     };
+    // Looked up per-chore to tell a one-off booking's chore apart from a
+    // recurring series's, purely to show the "Weekly" badge — no new data
+    // fetched, this just cross-references the reservations already loaded
+    // above.
+    final reservationById = <String, AppReservation>{
+      for (final reservation in reservationsAsync.valueOrNull ?? const [])
+        reservation.id: reservation,
+    };
     final isAdmin = me == null
         ? false
         : (membersAsync.valueOrNull ?? const [])
@@ -163,7 +171,7 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
               ),
               SizedBox(height: Space.base.h),
               Text(
-                'YOUR CHORES',
+                'YOURS · DUE NEXT',
                 style: context.text.labelLarge?.copyWith(
                   color: c.ink3,
                   fontSize: 11.sp,
@@ -183,21 +191,32 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
                 data: (chores) {
                   final mine = me == null
                       ? const <AppChore>[]
-                      : chores.where((chore) => chore.userId == me.id && !chore.done).toList();
+                      : chores.where((chore) => chore.userId == me.id && !chore.done).toList()
+                    ..sort((a, b) => a.dueAt.compareTo(b.dueAt));
                   if (mine.isEmpty) {
                     return Text(
                       'Nothing pending.',
                       style: context.text.bodySmall?.copyWith(color: c.ink3),
                     );
                   }
+                  final next = mine.first;
+                  final rest = mine.skip(1).toList();
                   return Column(
                     children: [
-                      for (final chore in mine)
+                      FadeSlideIn(
+                        key: ValueKey('chore-${next.id}'),
+                        child: _YourNextChoreCard(groupId: groupId, chore: next),
+                      ),
+                      for (final chore in rest)
                         Padding(
-                          padding: EdgeInsets.only(bottom: Space.sm.h),
+                          padding: EdgeInsets.only(top: Space.sm.h),
                           child: FadeSlideIn(
                             key: ValueKey('chore-${chore.id}'),
-                            child: _ChoreRow(groupId: groupId, chore: chore),
+                            child: _ChoreRow(
+                              groupId: groupId,
+                              chore: chore,
+                              isWeekly: reservationById[chore.reservationId]?.recurringSeriesId != null,
+                            ),
                           ),
                         ),
                     ],
@@ -205,15 +224,6 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
                 },
               ),
               SizedBox(height: Space.base.h),
-              Text(
-                'HOUSEMATES\' CHORES',
-                style: context.text.labelLarge?.copyWith(
-                  color: c.ink3,
-                  fontSize: 11.sp,
-                  letterSpacing: 0.5,
-                ),
-              ),
-              SizedBox(height: Space.sm.h),
               choresAsync.when(
                 loading: () => const SizedBox.shrink(),
                 error: (_, __) => const SizedBox.shrink(),
@@ -229,15 +239,45 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
                   final others = me == null
                       ? const <AppChore>[]
                       : chores.where((chore) => chore.userId != me.id && !chore.done).toList();
-                  if (others.isEmpty) {
-                    return Text(
-                      'Nothing pending for anyone else.',
-                      style: context.text.bodySmall?.copyWith(color: c.ink3),
-                    );
-                  }
                   return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      for (final chore in others)
+                      Row(
+                        children: [
+                          Text(
+                            'HOUSEMATES',
+                            style: context.text.labelLarge?.copyWith(
+                              color: c.ink3,
+                              fontSize: 11.sp,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                          const Spacer(),
+                          if (others.isNotEmpty)
+                            Container(
+                              padding: EdgeInsets.symmetric(horizontal: Space.sm.w, vertical: 2.h),
+                              decoration: BoxDecoration(
+                                color: c.surface2,
+                                borderRadius: BorderRadius.circular(Radii.pill.r),
+                              ),
+                              child: Text(
+                                '${others.length} left',
+                                style: context.text.bodySmall?.copyWith(
+                                  color: c.ink2,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      SizedBox(height: Space.sm.h),
+                      if (others.isEmpty)
+                        Text(
+                          'Nothing pending for anyone else.',
+                          style: context.text.bodySmall?.copyWith(color: c.ink3),
+                        )
+                      else
+                        for (final chore in others)
                         Padding(
                           padding: EdgeInsets.only(bottom: Space.sm.h),
                           child: FadeSlideIn(
@@ -245,6 +285,8 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
                             child: _OtherChoreRow(
                               chore: chore,
                               assigneeName: namesById[chore.userId] ?? 'A housemate',
+                              assigneeAvatarUrl: avatarUrlById[chore.userId],
+                              isWeekly: reservationById[chore.reservationId]?.recurringSeriesId != null,
                             ),
                           ),
                         ),
@@ -798,11 +840,86 @@ class _UrgentAccessBanner extends StatelessWidget {
   }
 }
 
-class _ChoreRow extends ConsumerWidget {
-  const _ChoreRow({required this.groupId, required this.chore});
+/// The single most-urgent chore of the caller's own, shown as the mockup's
+/// gradient-tinted hero card instead of a plain row — any further chores
+/// of the caller's own render as plain [_ChoreRow]s underneath.
+class _YourNextChoreCard extends ConsumerWidget {
+  const _YourNextChoreCard({required this.groupId, required this.chore});
 
   final String groupId;
   final AppChore chore;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.colors;
+    final now = DateTime.now().toUtc();
+    final isDue = now.isAfter(chore.dueAt);
+    final isSoon = !isDue && chore.dueAt.difference(now) <= const Duration(hours: 1);
+    final dueColor = isDue ? c.call.solid : (isSoon ? c.focus.solid : c.ink3);
+
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(Space.base.w),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [c.accentTint, c.accentTint.withValues(alpha: 0)],
+        ),
+        borderRadius: BorderRadius.circular(Radii.md.r),
+        border: Border.all(color: c.accentRing),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'CHORE',
+            style: context.text.labelLarge?.copyWith(
+              color: c.accent,
+              fontSize: 11.sp,
+              letterSpacing: 0.5,
+            ),
+          ),
+          SizedBox(height: Space.xs.h),
+          Text(
+            chore.template,
+            style: context.text.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          SizedBox(height: Space.xs.h),
+          Text(
+            isDue ? 'Due now' : 'Due ${chore.dueAt.toLocalDateTimeLabel()}',
+            style: context.text.bodyMedium?.copyWith(color: dueColor, fontWeight: FontWeight.w600),
+          ),
+          SizedBox(height: Space.md.h),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: () => _markDone(context, ref),
+              child: const Text('Mark done'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _markDone(BuildContext context, WidgetRef ref) async {
+    try {
+      await ref.read(groupsRepositoryProvider).markChoreDone(chore.id);
+      Haptics.commit();
+      ref.invalidate(groupChoresProvider(groupId));
+    } on ApiException catch (e) {
+      if (context.mounted) showAppSnackBar(context, e.message);
+    }
+  }
+}
+
+class _ChoreRow extends ConsumerWidget {
+  const _ChoreRow({required this.groupId, required this.chore, required this.isWeekly});
+
+  final String groupId;
+  final AppChore chore;
+  final bool isWeekly;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -824,12 +941,20 @@ class _ChoreRow extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(chore.template, style: context.text.bodyLarge),
-                SizedBox(height: 1.h),
-                Text(
-                  isDue ? 'Due now' : 'Due ${chore.dueAt.toLocalDateTimeLabel()}',
-                  style: context.text.bodySmall?.copyWith(
-                    color: isDue ? c.call.solid : c.ink3,
-                  ),
+                SizedBox(height: Space.xs.h),
+                Row(
+                  children: [
+                    if (isWeekly) ...[
+                      const _RecurringBadge(),
+                      SizedBox(width: Space.sm.w),
+                    ],
+                    Text(
+                      isDue ? 'Due now' : 'Due ${chore.dueAt.toLocalDateTimeLabel()}',
+                      style: context.text.bodySmall?.copyWith(
+                        color: isDue ? c.call.solid : c.ink3,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -865,10 +990,17 @@ class _ChoreRow extends ConsumerWidget {
 /// "Done" button, since markChoreDone is assignee-only server-side
 /// regardless of anything this screen shows or hides.
 class _OtherChoreRow extends StatelessWidget {
-  const _OtherChoreRow({required this.chore, required this.assigneeName});
+  const _OtherChoreRow({
+    required this.chore,
+    required this.assigneeName,
+    required this.assigneeAvatarUrl,
+    required this.isWeekly,
+  });
 
   final AppChore chore;
   final String assigneeName;
+  final String? assigneeAvatarUrl;
+  final bool isWeekly;
 
   @override
   Widget build(BuildContext context) {
@@ -883,14 +1015,63 @@ class _OtherChoreRow extends StatelessWidget {
         borderRadius: BorderRadius.circular(Radii.md.r),
         border: Border.all(color: c.line),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Text(chore.template, style: context.text.bodyLarge),
-          SizedBox(height: 1.h),
+          Avatar(name: assigneeName, photoUrl: assigneeAvatarUrl, size: 32.r),
+          SizedBox(width: Space.md.w),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(chore.template, style: context.text.bodyLarge),
+                SizedBox(height: Space.xs.h),
+                Row(
+                  children: [
+                    if (isWeekly) ...[
+                      const _RecurringBadge(),
+                      SizedBox(width: Space.sm.w),
+                    ],
+                    Expanded(
+                      child: Text(
+                        '$assigneeName · ${isDue ? 'Due now' : 'Due ${chore.dueAt.toLocalDateTimeLabel()}'}',
+                        style: context.text.bodySmall?.copyWith(color: isDue ? c.call.solid : c.ink3),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The small "Weekly" pill shown next to a chore that came from a
+/// recurring booking series, rather than a one-off booking.
+class _RecurringBadge extends StatelessWidget {
+  const _RecurringBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: Space.sm.w, vertical: 2.h),
+      decoration: BoxDecoration(
+        color: c.surface2,
+        borderRadius: BorderRadius.circular(Radii.pill.r),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(width: 5.r, height: 5.r, decoration: BoxDecoration(color: c.ink3, shape: BoxShape.circle)),
+          SizedBox(width: 4.w),
           Text(
-            '$assigneeName · ${isDue ? 'Due now' : 'Due ${chore.dueAt.toLocalDateTimeLabel()}'}',
-            style: context.text.bodySmall?.copyWith(color: isDue ? c.call.solid : c.ink3),
+            'Weekly',
+            style: context.text.bodySmall?.copyWith(color: c.ink2, fontWeight: FontWeight.w600),
           ),
         ],
       ),
