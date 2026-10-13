@@ -102,20 +102,19 @@ class _AccountCardState extends ConsumerState<_AccountCard> {
         borderRadius: BorderRadius.circular(Radii.md.r),
         border: Border.all(color: c.line),
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Column(
         children: [
           PressFeedback(
             onTap: _busy ? null : _pickAndUpload,
             child: Stack(
               clipBehavior: Clip.none,
               children: [
-                Avatar(name: widget.name, photoUrl: widget.avatarUrl, size: 56.r),
+                Avatar(name: widget.name, photoUrl: widget.avatarUrl, size: 84.r),
                 Positioned(
                   right: -2.r,
                   bottom: -2.r,
                   child: Container(
-                    padding: EdgeInsets.all(3.r),
+                    padding: EdgeInsets.all(Space.xs.w),
                     decoration: BoxDecoration(
                       color: c.accent,
                       shape: BoxShape.circle,
@@ -123,50 +122,48 @@ class _AccountCardState extends ConsumerState<_AccountCard> {
                     ),
                     child: _busy
                         ? SizedBox(
-                            width: 11.r,
-                            height: 11.r,
+                            width: 14.r,
+                            height: 14.r,
                             child: CircularProgressIndicator(strokeWidth: 1.5, color: c.onAccent),
                           )
-                        : Icon(Icons.camera_alt_outlined, size: 11.r, color: c.onAccent),
+                        : Icon(Icons.camera_alt_outlined, size: 14.r, color: c.onAccent),
                   ),
                 ),
               ],
             ),
           ),
-          SizedBox(width: Space.md.w),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.name,
-                  style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
-                ),
-                SizedBox(height: 2.h),
-                Text(widget.phone, style: context.text.bodySmall),
-                if (widget.avatarUrl != null) ...[
-                  SizedBox(height: Space.xs.h),
-                  PressFeedback(
-                    onTap: _busy ? null : _remove,
-                    child: Text(
-                      'Remove photo',
-                      style: context.text.bodySmall?.copyWith(color: c.call.solid),
-                    ),
-                  ),
-                ],
-              ],
-            ),
+          SizedBox(height: Space.md.h),
+          Text(
+            widget.name,
+            textAlign: TextAlign.center,
+            style: context.text.titleLarge?.copyWith(fontWeight: FontWeight.w700),
           ),
-          PressFeedback(
-            onTap: () => _editName(context, ref),
-            child: Container(
-              padding: EdgeInsets.all(Space.sm.w),
-              decoration: BoxDecoration(
-                color: c.surface2,
-                borderRadius: BorderRadius.circular(Radii.sm.r),
+          SizedBox(height: 2.h),
+          Text(widget.phone, textAlign: TextAlign.center, style: context.text.bodySmall),
+          SizedBox(height: Space.sm.h),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              PressFeedback(
+                onTap: () => _editName(context, ref),
+                child: Text(
+                  'Edit name',
+                  style: context.text.bodySmall?.copyWith(color: c.accent, fontWeight: FontWeight.w600),
+                ),
               ),
-              child: Icon(Icons.edit_outlined, color: c.ink2, size: 18.r),
-            ),
+              if (widget.avatarUrl != null) ...[
+                SizedBox(width: Space.sm.w),
+                Text('·', style: context.text.bodySmall?.copyWith(color: c.ink3)),
+                SizedBox(width: Space.sm.w),
+                PressFeedback(
+                  onTap: _busy ? null : _remove,
+                  child: Text(
+                    'Remove photo',
+                    style: context.text.bodySmall?.copyWith(color: c.call.solid, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ],
           ),
         ],
       ),
@@ -236,16 +233,18 @@ class _ThemeCard extends ConsumerWidget {
             ),
           ),
           SizedBox(height: Space.md.h),
-          Wrap(
-            spacing: Space.sm.w,
-            runSpacing: Space.sm.h,
+          Row(
             children: [
-              for (final option in ThemeMode.values)
-                _ThemeOption(
-                  mode: option,
-                  selected: mode == option,
-                  onTap: () => ref.read(themeControllerProvider.notifier).set(option),
+              for (final option in ThemeMode.values) ...[
+                Expanded(
+                  child: _ThemeOption(
+                    mode: option,
+                    selected: mode == option,
+                    onTap: () => ref.read(themeControllerProvider.notifier).set(option),
+                  ),
                 ),
+                if (option != ThemeMode.values.last) SizedBox(width: Space.sm.w),
+              ],
             ],
           ),
         ],
@@ -276,27 +275,29 @@ class _ThemeOption extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    return GestureDetector(
+    return PressFeedback(
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        curve: const Cubic(0.2, 0, 0, 1),
-        padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.sm.h),
+        duration: Motion.state,
+        curve: Motion.curve,
+        width: double.infinity,
+        alignment: Alignment.center,
+        padding: EdgeInsets.symmetric(horizontal: Space.sm.w, vertical: Space.sm.h),
         decoration: BoxDecoration(
-          color: selected ? c.accent : c.surface2,
-          borderRadius: BorderRadius.circular(Radii.pill.r),
+          color: selected ? c.accentTint : Colors.transparent,
+          borderRadius: BorderRadius.circular(Radii.sm.r),
           border: Border.all(color: selected ? c.accent : c.line2),
         ),
-        child: Row(
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(_icon, color: selected ? c.onAccent : c.ink2, size: 16.r),
-            SizedBox(width: Space.xs.w),
+            Icon(_icon, color: selected ? c.accent : c.ink2, size: 18.r),
+            SizedBox(height: Space.xs.h),
             Text(
               _label,
               style: context.text.labelLarge?.copyWith(
-                color: selected ? c.onAccent : c.ink2,
-                fontWeight: FontWeight.w500,
+                color: selected ? c.accent : c.ink2,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ],
@@ -322,52 +323,55 @@ class _AccountActionsCardState extends ConsumerState<_AccountActionsCard> {
     final c = context.colors;
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.all(Space.base.w),
       decoration: BoxDecoration(
         color: c.surface,
         borderRadius: BorderRadius.circular(Radii.md.r),
         border: Border.all(color: c.line),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton(
-              onPressed: _signingOut ? null : _signOut,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: c.ink2,
-                side: BorderSide(color: c.line2),
-                padding: EdgeInsets.symmetric(vertical: Space.md.h),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sm.r)),
-              ),
-              child: _signingOut
-                  ? SizedBox(
+          PressFeedback(
+            onTap: _signingOut ? null : _signOut,
+            child: Container(
+              width: double.infinity,
+              padding: EdgeInsets.symmetric(horizontal: Space.base.w, vertical: Space.md.h),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text('Sign out', style: context.text.bodyLarge?.copyWith(color: c.ink)),
+                  ),
+                  if (_signingOut)
+                    SizedBox(
                       width: 18.r,
                       height: 18.r,
                       child: CircularProgressIndicator(strokeWidth: 2, color: c.ink2),
-                    )
-                  : const Text('Sign out'),
+                    ),
+                ],
+              ),
             ),
           ),
-          SizedBox(height: Space.sm.h),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton(
-              onPressed: _deleting ? null : _confirmDeleteAccount,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: c.call.solid,
-                side: BorderSide(color: c.call.solid),
-                padding: EdgeInsets.symmetric(vertical: Space.md.h),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sm.r)),
-              ),
-              child: _deleting
-                  ? SizedBox(
+          Divider(height: 1, color: c.line),
+          PressFeedback(
+            onTap: _deleting ? null : _confirmDeleteAccount,
+            child: Container(
+              width: double.infinity,
+              padding: EdgeInsets.symmetric(horizontal: Space.base.w, vertical: Space.md.h),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Delete account',
+                      style: context.text.bodyLarge?.copyWith(color: c.call.solid, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  if (_deleting)
+                    SizedBox(
                       width: 18.r,
                       height: 18.r,
                       child: CircularProgressIndicator(strokeWidth: 2, color: c.call.solid),
-                    )
-                  : const Text('Delete account'),
+                    ),
+                ],
+              ),
             ),
           ),
         ],
