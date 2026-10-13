@@ -20,10 +20,21 @@ class OtpEntryPage extends ConsumerStatefulWidget {
 
 class _OtpEntryPageState extends ConsumerState<OtpEntryPage> {
   final _controller = TextEditingController();
+  final _focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    // Repaints the 6 boxes below on every keystroke (digit typed, or
+    // backspaced) — the actual value still lives in _controller/_submit,
+    // unchanged; this just drives the box-by-box visual.
+    _controller.addListener(() => setState(() {}));
+  }
 
   @override
   void dispose() {
     _controller.dispose();
+    _focusNode.dispose();
     super.dispose();
   }
 
@@ -68,29 +79,37 @@ class _OtpEntryPageState extends ConsumerState<OtpEntryPage> {
                 style: context.text.bodySmall,
               ),
               SizedBox(height: Space.xl.h),
-              TextField(
-                controller: _controller,
-                keyboardType: TextInputType.number,
-                textAlign: TextAlign.center,
-                maxLength: 6,
-                style: context.text.titleLarge?.copyWith(letterSpacing: 8),
-                decoration: InputDecoration(
-                  counterText: '',
-                  filled: true,
-                  fillColor: c.surface2,
-                  contentPadding: EdgeInsets.symmetric(vertical: Space.md.h),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(Radii.md.r),
-                    borderSide: BorderSide(color: c.line2),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(Radii.md.r),
-                    borderSide: BorderSide(color: c.line2),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(Radii.md.r),
-                    borderSide: BorderSide(color: c.accent),
-                  ),
+              GestureDetector(
+                onTap: () => _focusNode.requestFocus(),
+                child: Stack(
+                  children: [
+                    // The real input: fully transparent but still focusable
+                    // and IME-connected, positioned under the 6 visible
+                    // boxes. Still the same _controller driving _submit -
+                    // only how the value is *drawn* changed.
+                    Opacity(
+                      opacity: 0,
+                      child: TextField(
+                        controller: _controller,
+                        focusNode: _focusNode,
+                        keyboardType: TextInputType.number,
+                        maxLength: 6,
+                        decoration: const InputDecoration(counterText: '', border: InputBorder.none),
+                      ),
+                    ),
+                    IgnorePointer(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          for (var i = 0; i < 6; i++)
+                            _OtpDigitBox(
+                              digit: i < _controller.text.length ? _controller.text[i] : null,
+                              active: i == _controller.text.length,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
               if (flowState is OtpFlowError) ...[
@@ -128,5 +147,35 @@ class _OtpEntryPageState extends ConsumerState<OtpEntryPage> {
     final code = _controller.text.trim();
     if (code.length != 6) return;
     ref.read(otpFlowControllerProvider.notifier).confirmCode(code);
+  }
+}
+
+/// One of the 6 square digit boxes: shows its digit once filled, an accent
+/// border + glow ring while it's the next one to be filled, and a plain
+/// outline otherwise. Purely decorative - the real value lives in
+/// _OtpEntryPageState's hidden TextField/_controller.
+class _OtpDigitBox extends StatelessWidget {
+  const _OtpDigitBox({required this.digit, required this.active});
+
+  final String? digit;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Container(
+      width: 44.r,
+      height: 52.r,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: c.surface2,
+        borderRadius: BorderRadius.circular(Radii.sm.r),
+        border: Border.all(color: active ? c.accent : c.line2, width: active ? 2 : 1),
+        boxShadow: active
+            ? [BoxShadow(color: c.accentRing, blurRadius: 8.r, spreadRadius: 1.r)]
+            : null,
+      ),
+      child: Text(digit ?? '', style: context.text.titleLarge),
+    );
   }
 }
