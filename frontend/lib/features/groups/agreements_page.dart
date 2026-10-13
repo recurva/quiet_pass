@@ -154,34 +154,52 @@ class _AgreementCard extends ConsumerWidget {
         borderRadius: BorderRadius.circular(Radii.md.r),
         border: Border.all(color: c.line),
       ),
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Text(
-                  agreement.title,
-                  style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
-                ),
-              ),
-              if (isAdmin)
-                PopupMenuButton<_AgreementAction>(
-                  icon: Icon(Icons.more_vert, color: c.ink2, size: 20.r),
-                  onSelected: (action) => switch (action) {
-                    _AgreementAction.edit => _edit(context, ref),
-                    _AgreementAction.remove => _remove(context, ref),
-                  },
-                  itemBuilder: (context) => const [
-                    PopupMenuItem(value: _AgreementAction.edit, child: Text('Edit')),
-                    PopupMenuItem(value: _AgreementAction.remove, child: Text('Remove')),
+          Container(
+            width: 36.r,
+            height: 36.r,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: c.accentTint,
+              borderRadius: BorderRadius.circular(Radii.sm.r),
+            ),
+            child: Icon(Icons.push_pin_outlined, size: 18.r, color: c.accent),
+          ),
+          SizedBox(width: Space.md.w),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        agreement.title,
+                        style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    if (isAdmin)
+                      PopupMenuButton<_AgreementAction>(
+                        icon: Icon(Icons.more_vert, color: c.ink2, size: 20.r),
+                        onSelected: (action) => switch (action) {
+                          _AgreementAction.edit => _edit(context, ref),
+                          _AgreementAction.remove => _remove(context, ref),
+                        },
+                        itemBuilder: (context) => const [
+                          PopupMenuItem(value: _AgreementAction.edit, child: Text('Edit')),
+                          PopupMenuItem(value: _AgreementAction.remove, child: Text('Remove')),
+                        ],
+                      ),
                   ],
                 ),
-            ],
+                SizedBox(height: Space.xs.h),
+                Text(agreement.content, style: context.text.bodyMedium),
+              ],
+            ),
           ),
-          SizedBox(height: Space.xs.h),
-          Text(agreement.content, style: context.text.bodyMedium),
         ],
       ),
     );
