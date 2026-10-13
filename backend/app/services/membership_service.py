@@ -55,6 +55,21 @@ async def rebalance_admin_before_departure(
         .where(Membership.group_id == group_id)
         .order_by(Membership.joined_at.asc())
         .with_for_update()
+        # Without this, a Membership row already in this session's
+        # identity map (every caller here loads the departing member's
+        # own row via db.get() first) keeps its stale in-memory attribute
+        # values even though this query — after genuinely blocking on the
+        # lock and getting Postgres's fresh, just-committed data — pulled
+        # the correct current role. SQLAlchemy's ORM loader treats an
+        # already-identity-mapped object as authoritative by default and
+        # silently discards the fresh row; populate_existing() overrides
+        # that and refreshes it from what was actually just read. Found
+        # via a real, reproducible interleaving (not a timing fluke): two
+        # departures where the second request's departing_role read came
+        # back stale, so the function wrongly concluded "not an admin,
+        # nothing to rebalance" even though the first commit had already
+        # made them one — the exact case this lock exists to prevent.
+        .execution_options(populate_existing=True)
     )
     all_memberships = list(result.scalars().all())
     remaining = [m for m in all_memberships if m.user_id != departing_user_id]
