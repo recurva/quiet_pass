@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../core/api_client.dart';
+import '../../theme/app_colors.dart';
 import '../../theme/app_snackbar.dart';
+import '../../theme/avatar.dart';
 import '../../theme/dimens.dart';
 import '../../theme/motion.dart';
 import '../../theme/theme_x.dart';
@@ -135,17 +137,11 @@ class _GroupsHomePageState extends ConsumerState<GroupsHomePage>
                     Expanded(
                       child: Text('Hi, ${user.displayName}', style: context.text.titleLarge),
                     ),
-                    IconButton(
-                      onPressed: () => Navigator.of(context).push(
+                    PressFeedback(
+                      onTap: () => Navigator.of(context).push(
                         MaterialPageRoute(builder: (_) => const ProfilePage()),
                       ),
-                      style: IconButton.styleFrom(
-                        backgroundColor: c.surface2,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(Radii.sm.r),
-                        ),
-                      ),
-                      icon: Icon(Icons.settings_outlined, color: c.ink2, size: 18.r),
+                      child: Avatar(name: user.displayName, photoUrl: user.avatarUrl, size: 36.r),
                     ),
                   ],
                 ),
@@ -305,17 +301,55 @@ class _GroupTile extends StatelessWidget {
           borderRadius: BorderRadius.circular(Radii.md.r),
           border: Border.all(color: c.line),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            Text(
-              group.name,
-              style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+            _HouseInitialChip(name: group.name),
+            SizedBox(width: Space.md.w),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    group.name,
+                    style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+                  ),
+                  SizedBox(height: Space.xs.h),
+                  Text('Invite code: ${group.inviteCode}', style: context.text.bodySmall),
+                ],
+              ),
             ),
-            SizedBox(height: Space.xs.h),
-            Text('Invite code: ${group.inviteCode}', style: context.text.bodySmall),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// A tinted first-letter chip for a house, purely decorative (the mockup's
+/// "colored icon-letter chip, tinted per house"). The tint is picked
+/// deterministically from the house's own name/status-color families
+/// already in [AppColors] — no new data fetched, no randomness, so the
+/// same house always gets the same color.
+class _HouseInitialChip extends StatelessWidget {
+  const _HouseInitialChip({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final families = [c.open, c.focus, c.call, c.sleep, c.awayStatus];
+    final style = families[name.hashCode.abs() % families.length];
+    final initial = name.trim().isEmpty ? '?' : name.trim()[0].toUpperCase();
+
+    return Container(
+      width: 40.r,
+      height: 40.r,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(color: style.tint, borderRadius: BorderRadius.circular(Radii.sm.r)),
+      child: Text(
+        initial,
+        style: context.text.titleLarge?.copyWith(color: style.ink, fontWeight: FontWeight.w700),
       ),
     );
   }
