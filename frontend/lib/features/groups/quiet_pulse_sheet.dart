@@ -3,6 +3,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../theme/dimens.dart';
 import '../../theme/motion.dart';
+import '../../theme/status_widgets.dart';
 import '../../theme/theme_x.dart';
 
 /// Shows the quiet-pulse sheet: pick a duration, see the exact neutral
@@ -67,13 +68,15 @@ class _QuietPulseSheetState extends State<_QuietPulseSheet> {
               children: [
                 for (final minutes in const [15, 30, 60]) ...[
                   Expanded(
-                    child: _DurationOption(
-                      minutes: minutes,
-                      selected: _minutes == minutes,
-                      onTap: () {
-                        Haptics.selection();
-                        setState(() => _minutes = minutes);
-                      },
+                    child: Center(
+                      child: DurationChip(
+                        label: minutes < 60 ? '${minutes}m' : '${minutes ~/ 60}h',
+                        selected: _minutes == minutes,
+                        onTap: () {
+                          Haptics.selection();
+                          setState(() => _minutes = minutes);
+                        },
+                      ),
                     ),
                   ),
                   if (minutes != 60) SizedBox(width: Space.sm.w),
@@ -109,36 +112,3 @@ class _QuietPulseSheetState extends State<_QuietPulseSheet> {
   }
 }
 
-class _DurationOption extends StatelessWidget {
-  const _DurationOption({required this.minutes, required this.selected, required this.onTap});
-
-  final int minutes;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return PressFeedback(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: Motion.state,
-        curve: Motion.curve,
-        padding: EdgeInsets.symmetric(vertical: Space.sm.h),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: selected ? c.accent : c.surface2,
-          borderRadius: BorderRadius.circular(Radii.pill.r),
-          border: Border.all(color: selected ? c.accent : c.line2),
-        ),
-        child: Text(
-          '$minutes min',
-          style: context.text.labelLarge?.copyWith(
-            color: selected ? c.onAccent : c.ink2,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-    );
-  }
-}
