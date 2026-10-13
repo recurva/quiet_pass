@@ -98,6 +98,10 @@ abstract final class AppTheme {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         ),
       ),
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        backgroundColor: c.accent,
+        foregroundColor: c.onAccent,
+      ),
     );
   }
 }

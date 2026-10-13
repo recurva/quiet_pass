@@ -33,6 +33,8 @@ class AgreementsPage extends ConsumerWidget {
       backgroundColor: c.bg,
       floatingActionButton: isAdmin
           ? FloatingActionButton(
+              backgroundColor: c.accent,
+              foregroundColor: c.onAccent,
               onPressed: () => _addAgreement(context, ref),
               child: const Icon(Icons.add),
             )
