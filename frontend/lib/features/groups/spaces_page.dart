@@ -5,6 +5,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../../core/api_client.dart';
 import '../../core/local_time.dart';
 import '../../theme/app_snackbar.dart';
+import '../../theme/avatar.dart';
 import '../../theme/dimens.dart';
 import '../../theme/motion.dart';
 import '../../theme/theme_x.dart';
@@ -78,6 +79,10 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
       for (final member in membersAsync.valueOrNull ?? const [])
         member.user.id: member.user.displayName,
     };
+    final avatarUrlById = <String, String?>{
+      for (final member in membersAsync.valueOrNull ?? const [])
+        member.user.id: member.user.avatarUrl,
+    };
     final isAdmin = me == null
         ? false
         : (membersAsync.valueOrNull ?? const [])
@@ -148,6 +153,7 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
                               .where((r) => r.spaceId == space.id)
                               .toList(),
                           namesById: namesById,
+                          avatarUrlById: avatarUrlById,
                           myUserId: me?.id,
                           isAdmin: isAdmin,
                         ),
@@ -334,6 +340,7 @@ class _SpaceCard extends ConsumerWidget {
     required this.space,
     required this.reservations,
     required this.namesById,
+    required this.avatarUrlById,
     required this.myUserId,
     required this.isAdmin,
   });
@@ -342,6 +349,7 @@ class _SpaceCard extends ConsumerWidget {
   final AppSpace space;
   final List<AppReservation> reservations;
   final Map<String, String> namesById;
+  final Map<String, String?> avatarUrlById;
   final String? myUserId;
   final bool isAdmin;
 
@@ -350,6 +358,10 @@ class _SpaceCard extends ConsumerWidget {
     final c = context.colors;
     final sorted = [...reservations]..sort((a, b) => a.startTime.compareTo(b.startTime));
     final now = DateTime.now().toUtc();
+    final activeNow = sorted
+        .where((r) => !now.isBefore(r.startTime) && now.isBefore(r.endTime))
+        .firstOrNull;
+    final isFree = activeNow == null;
 
     return Container(
       width: double.infinity,
@@ -363,39 +375,65 @@ class _SpaceCard extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
+              Container(
+                width: 36.r,
+                height: 36.r,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: c.surface2,
+                  borderRadius: BorderRadius.circular(Radii.sm.r),
+                ),
+                child: Icon(Icons.meeting_room_outlined, size: 18.r, color: c.ink2),
+              ),
+              SizedBox(width: Space.md.w),
               Expanded(
                 child: Text(
                   space.name,
                   style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
                 ),
               ),
-              OutlinedButton(
-                onPressed: () => _book(context, ref),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: c.ink2,
-                  side: BorderSide(color: c.line2),
-                  padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.xs.h),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sm.r)),
+              Text(
+                isFree ? 'Free' : 'In use',
+                style: context.text.bodyMedium?.copyWith(
+                  color: isFree ? c.open.solid : c.call.solid,
+                  fontWeight: FontWeight.w600,
                 ),
-                child: const Text('Book'),
-              ),
-              SizedBox(width: Space.xs.w),
-              OutlinedButton(
-                onPressed: () => _bookWeekly(context, ref),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: c.ink2,
-                  side: BorderSide(color: c.line2),
-                  padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.xs.h),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sm.r)),
-                ),
-                child: const Text('Book weekly'),
               ),
             ],
           ),
+          if (activeNow != null) ...[
+            SizedBox(height: Space.sm.h),
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.sm.h),
+              decoration: BoxDecoration(
+                color: c.call.tint,
+                borderRadius: BorderRadius.circular(Radii.sm.r),
+              ),
+              child: Row(
+                children: [
+                  Avatar(
+                    name: namesById[activeNow.userId] ?? 'A housemate',
+                    photoUrl: avatarUrlById[activeNow.userId],
+                    size: 22.r,
+                  ),
+                  SizedBox(width: Space.sm.w),
+                  Expanded(
+                    child: Text(
+                      '${namesById[activeNow.userId] ?? 'A housemate'} · '
+                      '${activeNow.startTime.toLocalTimeLabel()} – ${activeNow.endTime.toLocalTimeLabel()}',
+                      style: context.text.bodySmall?.copyWith(color: c.call.ink, fontWeight: FontWeight.w600),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           if (sorted.isEmpty) ...[
-            SizedBox(height: Space.xs.h),
+            SizedBox(height: Space.sm.h),
             Text('Nothing booked.', style: context.text.bodySmall?.copyWith(color: c.ink3)),
           ] else ...[
             SizedBox(height: Space.sm.h),
@@ -416,6 +454,45 @@ class _SpaceCard extends ConsumerWidget {
                 ),
               ),
           ],
+          SizedBox(height: Space.sm.h),
+          Row(
+            children: [
+              Expanded(
+                child: isFree
+                    ? FilledButton(
+                        onPressed: () => _book(context, ref),
+                        style: FilledButton.styleFrom(
+                          padding: EdgeInsets.symmetric(vertical: Space.xs.h),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sm.r)),
+                        ),
+                        child: const Text('Book'),
+                      )
+                    : OutlinedButton(
+                        onPressed: () => _book(context, ref),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: c.ink2,
+                          side: BorderSide(color: c.line2),
+                          padding: EdgeInsets.symmetric(vertical: Space.xs.h),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sm.r)),
+                        ),
+                        child: const Text('Book now'),
+                      ),
+              ),
+              SizedBox(width: Space.sm.w),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => _bookWeekly(context, ref),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: c.ink2,
+                    side: BorderSide(color: c.line2),
+                    padding: EdgeInsets.symmetric(vertical: Space.xs.h),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sm.r)),
+                  ),
+                  child: const Text('Weekly'),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
