@@ -401,7 +401,21 @@ class _SpaceCard extends ConsumerWidget {
     final activeNow = sorted
         .where((r) => !now.isBefore(r.startTime) && now.isBefore(r.endTime))
         .firstOrNull;
-    final isFree = activeNow == null;
+    // Reserved: nothing active *right now*, but something later today —
+    // distinct from Free (nothing booked today at all). "Today" is judged
+    // in the viewer's own local calendar day, same as every other local
+    // time label on this screen (toLocalTimeLabel etc.).
+    final nowLocal = now.toLocal();
+    final nextToday = activeNow != null
+        ? null
+        : sorted.where((r) {
+            final startLocal = r.startTime.toLocal();
+            return r.startTime.isAfter(now) &&
+                startLocal.year == nowLocal.year &&
+                startLocal.month == nowLocal.month &&
+                startLocal.day == nowLocal.day;
+          }).firstOrNull;
+    final isFree = activeNow == null && nextToday == null;
 
     return Container(
       width: double.infinity,
@@ -434,9 +448,15 @@ class _SpaceCard extends ConsumerWidget {
                 ),
               ),
               Text(
-                isFree ? 'Free' : 'In use',
+                activeNow != null
+                    ? 'In use'
+                    : (nextToday != null
+                        ? 'Reserved · ${nextToday.startTime.toLocalTimeLabel()}'
+                        : 'Free'),
                 style: context.text.bodyMedium?.copyWith(
-                  color: isFree ? c.open.solid : c.call.solid,
+                  color: activeNow != null
+                      ? c.call.solid
+                      : (nextToday != null ? c.focus.solid : c.open.solid),
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -585,7 +605,12 @@ class _SpaceCard extends ConsumerWidget {
   }
 
   Future<void> _book(BuildContext context, WidgetRef ref) async {
-    final result = await showBookingSheet(context, groupId: groupId, space: space);
+    final result = await showBookingSheet(
+      context,
+      groupId: groupId,
+      space: space,
+      existingReservations: reservations,
+    );
     if (result == null || !context.mounted) return;
 
     ref.invalidate(groupReservationsProvider(groupId));

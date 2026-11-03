@@ -10,6 +10,14 @@ import '../../theme/theme_x.dart';
 import 'group_models.dart';
 import 'groups_providers.dart';
 
+/// Mirrors the backend's `reservation_buffer_minutes` (app/core/config.py)
+/// — the gap the server's EXCLUDE constraint already enforces between any
+/// two bookings on the same space. Used here only to warn the user about
+/// an overlap *before* they submit; the server-side constraint is still
+/// the actual source of truth (see [_BookingSheetState._overlaps]'s doc
+/// comment), so this only ever needs to stay roughly in sync, not exactly.
+const reservationBufferMinutes = 15;
+
 /// Shows the booking sheet for one space. Returns the booked
 /// (AppReservation, AppChore) pair on success, or null if cancelled/failed
 /// (the failure itself is already shown inline, via the sheet's own error
@@ -17,24 +25,39 @@ import 'groups_providers.dart';
 /// with the quiet-pulse sheet, except here the request happens *inside*
 /// the sheet deliberately, because on success we want the sheet itself to
 /// hand back the result for the caller to show the chore pass).
+///
+/// [existingReservations] is this space's current reservation list (every
+/// state: in-use, reserved-later-today, and further out) — used purely to
+/// block an overlapping pick client-side before it ever reaches the
+/// server; see [_BookingSheetState._overlaps].
 Future<(AppReservation, AppChore)?> showBookingSheet(
   BuildContext context, {
   required String groupId,
   required AppSpace space,
+  List<AppReservation> existingReservations = const [],
 }) {
   return showModalBottomSheet<(AppReservation, AppChore)?>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => _BookingSheet(groupId: groupId, space: space),
+    builder: (_) => _BookingSheet(
+      groupId: groupId,
+      space: space,
+      existingReservations: existingReservations,
+    ),
   );
 }
 
 class _BookingSheet extends ConsumerStatefulWidget {
-  const _BookingSheet({required this.groupId, required this.space});
+  const _BookingSheet({
+    required this.groupId,
+    required this.space,
+    required this.existingReservations,
+  });
 
   final String groupId;
   final AppSpace space;
+  final List<AppReservation> existingReservations;
 
   @override
   ConsumerState<_BookingSheet> createState() => _BookingSheetState();
@@ -55,9 +78,32 @@ class _BookingSheetState extends ConsumerState<_BookingSheet> {
     _startTime = now.add(const Duration(minutes: 5));
   }
 
+  /// True if [start, start+minutes) overlaps any existing reservation on
+  /// this space once its own buffer is applied — mirroring the server's
+  /// `ex_reservations_no_overlap` EXCLUDE constraint (see
+  /// reservation_service.py's module docstring: every booking's range is
+  /// padded to `[start, end + buffer)` before checking intersection, on
+  /// both sides being compared). This is advisory only — a client-side
+  /// shortcut to block an obviously-doomed pick before it round-trips to
+  /// the server, not a replacement for that constraint, which still has
+  /// the final say (and whose rejection is still shown via [_error] if
+  /// this check somehow missed something, e.g. a booking made by someone
+  /// else in the time between opening this sheet and submitting).
+  bool _overlaps(DateTime start, DateTime end) {
+    const buffer = Duration(minutes: reservationBufferMinutes);
+    for (final r in widget.existingReservations) {
+      if (r.startTime.isBefore(end.add(buffer)) && start.isBefore(r.endTime.add(buffer))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final selectedEnd = _startTime.add(Duration(minutes: _minutes));
+    final overlapsExisting = _overlaps(_startTime, selectedEnd);
 
     return Padding(
       padding: EdgeInsets.only(
@@ -112,9 +158,9 @@ class _BookingSheetState extends ConsumerState<_BookingSheet> {
                   width: double.infinity,
                   padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.md.h),
                   decoration: BoxDecoration(
-                    color: c.accentTint,
+                    color: overlapsExisting ? c.call.tint : c.accentTint,
                     borderRadius: BorderRadius.circular(Radii.md.r),
-                    border: Border.all(color: c.accent),
+                    border: Border.all(color: overlapsExisting ? c.call.solid : c.accent),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -123,12 +169,24 @@ class _BookingSheetState extends ConsumerState<_BookingSheet> {
                         _startTime.toLocalDateTimeLabel(),
                         style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
                       ),
-                      Icon(Icons.edit_calendar_outlined, color: c.accent, size: 18.r),
+                      Icon(
+                        Icons.edit_calendar_outlined,
+                        color: overlapsExisting ? c.call.solid : c.accent,
+                        size: 18.r,
+                      ),
                     ],
                   ),
                 ),
               ),
             ),
+            if (overlapsExisting) ...[
+              SizedBox(height: Space.sm.h),
+              Text(
+                'That overlaps an existing booking on this space (plus a '
+                '$reservationBufferMinutes min buffer). Pick another time.',
+                style: context.text.bodySmall?.copyWith(color: c.call.solid, fontWeight: FontWeight.w600),
+              ),
+            ],
             SizedBox(height: Space.md.h),
             Container(
               width: double.infinity,
@@ -151,7 +209,7 @@ class _BookingSheetState extends ConsumerState<_BookingSheet> {
             SizedBox(
               width: double.infinity,
               child: FilledButton(
-                onPressed: _submitting ? null : _submit,
+                onPressed: _submitting || overlapsExisting ? null : _submit,
                 child: _submitting
                     ? SizedBox(
                         width: 20,

@@ -157,6 +157,82 @@ async def test_buffer_boundary_exactly_15_minutes_passes_14_fails(client):
     assert exactly_buffer.status_code == 201
 
 
+async def test_reservation_list_shape_supports_free_reserved_in_use(client):
+    """Spaces' three-state availability badge (Free / Reserved · <time> /
+    In use) is computed entirely client-side from GET .../reservations —
+    there's no separate backend "availability" endpoint or field. This
+    confirms the list this endpoint returns actually carries what that
+    computation needs for all three cases: a space with nothing booked
+    today returns an empty list (Free), a space with only a later-today
+    booking returns it with the right start/end so the client can show
+    "Reserved · <time>" (not currently active), and a space with a
+    booking spanning right now returns it too (In use) -- list_reservations
+    excludes only reservations whose end_time has already passed, so an
+    active-now booking (which hasn't ended yet) and a future one are both
+    still present for the client to classify.
+    """
+    await _sign_in(client, "uid-res-9", "+913333330009", "A")
+    group = await _create_group(client, "uid-res-9", "+913333330009")
+    spaces = await client.get(
+        f"/api/v1/groups/{group['id']}/spaces", headers=auth_headers("uid-res-9", "+913333330009")
+    )
+    space_ids = [s["id"] for s in spaces.json()]
+    assert len(space_ids) >= 2, "need at least two default spaces for this scenario"
+    free_space_id, busy_space_id = space_ids[0], space_ids[1]
+
+    # busy_space_id: booked to start in 2 seconds, long enough to clear
+    # the "start time must be in the future" check at creation time; a
+    # short real sleep afterwards then puts it in the past relative to
+    # "now" at list time, so this becomes the active-right-now booking
+    # without the API ever having to accept a start time that's already
+    # elapsed (it rejects that outright).
+    active_start = datetime.now(timezone.utc) + timedelta(seconds=2)
+    active = await client.post(
+        f"/api/v1/groups/{group['id']}/spaces/{busy_space_id}/reservations",
+        headers=auth_headers("uid-res-9", "+913333330009"),
+        json={"start_time": _iso(active_start), "duration_minutes": 30},
+    )
+    assert active.status_code == 201
+
+    # Also give busy_space_id a later-today booking, well clear of the
+    # active one's buffer, so one space's list exercises both non-Free
+    # states at once.
+    later_today_start = active_start + timedelta(hours=1)
+    later_today = await client.post(
+        f"/api/v1/groups/{group['id']}/spaces/{busy_space_id}/reservations",
+        headers=auth_headers("uid-res-9", "+913333330009"),
+        json={"start_time": _iso(later_today_start), "duration_minutes": 30},
+    )
+    assert later_today.status_code == 201
+
+    # Let active_start actually elapse so it's genuinely active-now (not
+    # merely scheduled) by the time the list is fetched below.
+    await asyncio.sleep(2.5)
+
+    response = await client.get(
+        f"/api/v1/groups/{group['id']}/reservations", headers=auth_headers("uid-res-9", "+913333330009")
+    )
+    assert response.status_code == 200
+    by_space: dict[str, list[dict]] = {}
+    for row in response.json():
+        by_space.setdefault(row["space_id"], []).append(row)
+
+    # Free: nothing booked at all for this space today or otherwise.
+    assert free_space_id not in by_space
+
+    # Reserved + In use: both this space's reservations are present, with
+    # the exact start/end times a client needs to classify one as active
+    # now and the other as "reserved later today".
+    busy_rows = sorted(by_space[busy_space_id], key=lambda r: r["start_time"])
+    assert len(busy_rows) == 2
+    now = datetime.now(timezone.utc)
+    active_row, reserved_row = busy_rows
+    assert datetime.fromisoformat(active_row["start_time"]) <= now < datetime.fromisoformat(
+        active_row["end_time"]
+    )
+    assert datetime.fromisoformat(reserved_row["start_time"]) > now
+
+
 async def test_genuinely_concurrent_overlapping_bookings_only_one_wins(concurrent_client):
     """The one place in the codebase that deliberately avoids an
     app-level TOCTOU check in favor of a database EXCLUDE constraint —
