@@ -75,7 +75,7 @@ class AgreementsPage extends ConsumerWidget {
                     children: [
                       for (final agreement in agreements)
                         Padding(
-                          padding: EdgeInsets.only(bottom: Space.sm.h),
+                          padding: EdgeInsets.only(bottom: Space.md.h),
                           child: FadeSlideIn(
                             key: ValueKey('agreement-${agreement.id}'),
                             child: _AgreementCard(
@@ -197,8 +197,8 @@ class _AgreementCard extends ConsumerWidget {
                       ),
                   ],
                 ),
-                SizedBox(height: Space.xs.h),
-                Text(agreement.content, style: context.text.bodyMedium),
+                SizedBox(height: Space.sm.h),
+                _AgreementContent(content: agreement.content),
               ],
             ),
           ),
@@ -237,3 +237,69 @@ class _AgreementCard extends ConsumerWidget {
 }
 
 enum _AgreementAction { edit, remove }
+
+/// Renders [AppAgreement.content] for readability instead of as one dense
+/// paragraph — the client's actual complaint about this screen. The text
+/// itself is unstructured, admin-typed free text (agreement_sheet.dart's
+/// plain multi-line TextField; no data-model change here, by design), so
+/// this is a purely visual parse: a single line (most agreements are a
+/// short one-liner, e.g. "Bins out every Tuesday night.") renders as
+/// plain, roomier body text; several lines render as a properly-spaced
+/// list, each with one uniform marker dot — replacing whatever numbering
+/// or dashes an admin may have typed line-by-line (stripped via
+/// [_stripLeadingMarker]) rather than stacking our own marker on top of
+/// theirs.
+class _AgreementContent extends StatelessWidget {
+  const _AgreementContent({required this.content});
+
+  final String content;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final lines = content
+        .split('\n')
+        .map((line) => _stripLeadingMarker(line.trim()))
+        .where((line) => line.isNotEmpty)
+        .toList();
+
+    final bodyStyle = context.text.bodyMedium?.copyWith(color: c.ink2, height: 1.4);
+
+    if (lines.length <= 1) {
+      return Text(lines.isEmpty ? content.trim() : lines.first, style: bodyStyle);
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var i = 0; i < lines.length; i++)
+          Padding(
+            padding: EdgeInsets.only(top: i == 0 ? 0 : Space.sm.h),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: EdgeInsets.only(top: 7.h),
+                  child: Container(
+                    width: 5.r,
+                    height: 5.r,
+                    decoration: BoxDecoration(color: c.ink3, shape: BoxShape.circle),
+                  ),
+                ),
+                SizedBox(width: Space.sm.w),
+                Expanded(child: Text(lines[i], style: bodyStyle)),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Strips a leading "1.", "1)", "-", "*", or "•" (plus whatever
+/// whitespace follows it) that an admin may have typed as their own
+/// manual numbering/bullet — [_AgreementContent] supplies one uniform
+/// marker instead, so keeping the original would show both.
+final _leadingMarkerPattern = RegExp(r'^(\d+[.)]|[-*•])\s+');
+
+String _stripLeadingMarker(String line) => line.replaceFirst(_leadingMarkerPattern, '');
