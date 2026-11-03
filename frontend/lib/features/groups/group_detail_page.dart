@@ -790,6 +790,12 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
           .read(groupsRepositoryProvider)
           .sendNudge(widget.group.id, NudgeType.quietPulse, durationMinutes: minutes);
       Haptics.commit();
+      // The sender is deliberately excluded from receiving this same
+      // nudge back as an incoming banner (see the backend's
+      // nudge_service.send_nudge/ws.py exclude_user_id) -- without this,
+      // sending one would have no visible confirmation at all beyond
+      // the haptic tap.
+      if (mounted) showAppSnackBar(context, 'Sent.');
     } on ApiException catch (e) {
       if (mounted) showAppSnackBar(context, e.message);
     } finally {
@@ -802,6 +808,7 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
     try {
       await ref.read(groupsRepositoryProvider).sendNudge(widget.group.id, type);
       Haptics.commit();
+      if (mounted) showAppSnackBar(context, 'Sent.');
     } on ApiException catch (e) {
       if (mounted) showAppSnackBar(context, e.message);
     } finally {
@@ -819,6 +826,7 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
           .read(groupsRepositoryProvider)
           .sendNudge(widget.group.id, NudgeType.custom, message: message);
       Haptics.commit();
+      if (mounted) showAppSnackBar(context, 'Sent.');
     } on ApiException catch (e) {
       if (mounted) showAppSnackBar(context, e.message);
     } finally {

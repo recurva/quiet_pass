@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import json
 import uuid
 
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
@@ -23,6 +24,40 @@ CLOSE_UNAUTHENTICATED = 4401
 CLOSE_FORBIDDEN = 4403
 
 
+def filter_message_for_recipient(raw: str, recipient_user_id: str) -> str | None:
+    """Applies the one generic, non-event-specific rewrite this relay
+    makes: a publisher may set `"exclude_user_id"` on its payload
+    (nudge_service.send_nudge is the only one that does today) to mean
+    "deliver to every connection on this channel except this one user's
+    own" — e.g. so a sender never receives their own nudge back as an
+    incoming alert.
+
+    Returns `None` if this message must not reach `recipient_user_id` at
+    all (the exclude matches), otherwise the text to actually send — with
+    the `exclude_user_id` key always stripped out first, so the key
+    itself never reaches *any* client, including every other recipient
+    for whom it didn't match. A non-JSON or non-dict payload (not
+    expected from any current publisher) passes through unchanged rather
+    than being dropped.
+
+    A standalone, pure function rather than inline in the WS loop
+    specifically so this one piece of actual decision logic has direct
+    unit coverage without needing a WebSocket test harness at all.
+    """
+    try:
+        decoded = json.loads(raw)
+    except (TypeError, ValueError):
+        return raw
+
+    if not isinstance(decoded, dict) or "exclude_user_id" not in decoded:
+        return raw
+
+    excluded_user_id = decoded.pop("exclude_user_id")
+    if excluded_user_id == recipient_user_id:
+        return None
+    return json.dumps(decoded)
+
+
 @router.websocket("/ws")
 async def group_status_stream(
     websocket: WebSocket,
@@ -41,7 +76,15 @@ async def group_status_stream(
     the group's Redis channel — from any server worker, not just this one —
     as-is. Publishers (status_service, nudge_service) each stamp their own
     `"event"` field, so this route never inspects or rewrites message
-    content; it's a dumb relay by design.
+    content for any *event-specific* reason; it's a dumb relay by design.
+
+    The one deliberate, generic exception: a publisher may set
+    `"exclude_user_id"` on its payload (nudge_service.send_nudge is the
+    only one that does today) to mean "deliver to every connection on this
+    channel except this one user's own" — e.g. so a sender never receives
+    their own nudge back as an incoming alert. See `pump_redis_to_client`
+    below. The key itself never reaches any client — it's stripped before
+    relaying regardless of whether this connection matches it.
     """
     # Starlette only sends a real WS close *frame* (with our custom code)
     # once the handshake has been accepted; closing beforehand just rejects
@@ -91,9 +134,13 @@ async def group_status_stream(
         async for message in pubsub.listen():
             if message.get("type") != "message":
                 continue
-            # Relay verbatim: the publisher already stamped an "event" field.
+
+            outgoing = filter_message_for_recipient(message["data"], str(user.id))
+            if outgoing is None:
+                continue
+
             try:
-                await websocket.send_text(message["data"])
+                await websocket.send_text(outgoing)
             except Exception as exc:
                 # A client disconnecting mid-message races this task's own
                 # loop; without this it surfaced as an unretrieved

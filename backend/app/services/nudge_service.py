@@ -203,7 +203,19 @@ async def send_nudge(
         created_at=datetime.now(timezone.utc),
     )
 
-    payload = {"event": "nudge", **nudge.model_dump(mode="json")}
+    # `exclude_user_id` never reaches a client — ws.py's relay strips it
+    # before forwarding and uses it only to skip the one connection that
+    # belongs to this user, so the sender doesn't also receive their own
+    # nudge as an incoming alert. Nothing else in `payload` identifies
+    # the sender; this key exists purely for that one relay-level
+    # decision and must stay that way (see nudge.message itself, and
+    # NudgeRead's own docstring: there is deliberately no sender field a
+    # client could ever see).
+    payload = {
+        "event": "nudge",
+        "exclude_user_id": str(sender_id),
+        **nudge.model_dump(mode="json"),
+    }
     await publish_group_event(redis, group_id, payload)
 
     # sender_id is logged (internal, for the cap/cooldown) but never appears

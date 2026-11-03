@@ -10,6 +10,9 @@ real code path to test and isn't invented here. Flagged again in the
 final report rather than silently skipped.
 """
 
+import json
+
+from app.api.routers.ws import filter_message_for_recipient
 from tests.conftest import auth_headers
 
 
@@ -131,6 +134,72 @@ async def test_custom_nudge_requires_a_message_and_carries_it_verbatim(client):
     )
     assert with_message.status_code == 201
     assert with_message.json()["message"] == "Running the vacuum in 10 minutes"  # stripped
+
+
+async def test_send_nudge_publishes_an_exclude_user_id_for_the_sender(client, redis_client):
+    """The publish-side half of sender exclusion: send_nudge's payload to
+    Redis must carry `exclude_user_id` set to the actual sender, which is
+    what ws.py's relay (see filter_message_for_recipient, tested directly
+    below) acts on to skip that one connection. Subscribes to the group's
+    own channel directly rather than going through a WebSocket at all —
+    this suite has no WebSocket test harness (nothing here has ever
+    needed one before), and this is the actual mechanism under test:
+    whatever reaches Redis is identical regardless of how many
+    connections are subscribed to relay it afterward.
+    """
+    sender = await _sign_in(client, "uid-nu-7", "+915555550007", "Sender")
+    group = await _create_group(client, "uid-nu-7", "+915555550007")
+
+    pubsub = redis_client.pubsub()
+    await pubsub.subscribe(f"status:group:{group['id']}")
+    try:
+        # Clears the subscribe confirmation message itself before the
+        # real payload arrives.
+        await pubsub.get_message(timeout=1.0)
+
+        response = await client.post(
+            f"/api/v1/groups/{group['id']}/nudges",
+            headers=auth_headers("uid-nu-7", "+915555550007"),
+            json={"type": "front_door_unlocked"},
+        )
+        assert response.status_code == 201
+
+        message = await pubsub.get_message(timeout=2.0)
+        assert message is not None, "expected the nudge to be published on the group's channel"
+        payload = json.loads(message["data"])
+        assert payload["event"] == "nudge"
+        assert payload["exclude_user_id"] == sender["id"]
+        # Still carries none of the usual sender-identifying field names —
+        # exclude_user_id is the one deliberate, relay-only exception,
+        # not a loosening of the "nudges are anonymous" guarantee for
+        # anything a client would ever actually see post-relay.
+        assert "sender_id" not in payload
+        assert "user_id" not in payload
+    finally:
+        await pubsub.unsubscribe()
+        await pubsub.aclose()
+
+
+def test_relay_filter_skips_only_the_excluded_users_own_connection():
+    """Unit coverage for ws.py's filter_message_for_recipient — the exact
+    function group_status_stream's relay loop calls per connection per
+    message. Covers all three cases: the excluded user gets nothing, every
+    other recipient gets the message with the key stripped, and a message
+    with no exclude_user_id at all (every other event type) passes through
+    completely unchanged.
+    """
+    payload = json.dumps({"event": "nudge", "exclude_user_id": "sender-123", "message": "hi"})
+
+    assert filter_message_for_recipient(payload, "sender-123") is None
+
+    for_someone_else = filter_message_for_recipient(payload, "someone-else-456")
+    assert for_someone_else is not None
+    decoded = json.loads(for_someone_else)
+    assert "exclude_user_id" not in decoded
+    assert decoded == {"event": "nudge", "message": "hi"}
+
+    ordinary_event = json.dumps({"event": "status_update", "user_id": "x", "status": "away"})
+    assert filter_message_for_recipient(ordinary_event, "someone-else-456") == ordinary_event
 
 
 async def test_message_is_rejected_on_a_non_custom_type(client):
