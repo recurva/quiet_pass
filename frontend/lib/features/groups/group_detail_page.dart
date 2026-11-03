@@ -138,7 +138,7 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _header(context, myMembership),
+                    _header(context, myMembership, me),
                     SizedBox(height: Space.sm.h),
                     Padding(
                       padding: EdgeInsets.only(left: 44.r),
@@ -232,54 +232,81 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
     );
   }
 
-  /// Identity only: back, name, leave. Occasional-tool entry points used
-  /// to accumulate here as one pill per feature — that queue is gone now;
-  /// see [_toolsButton] and [_spacesEntry] for where those actions live
-  /// instead.
-  Widget _header(BuildContext context, HouseMember? myMembership) {
+  /// Back, name, leave, plus — below that row — the signed-in user's own
+  /// identity (small avatar + name), so it's visible without opening
+  /// Profile. [me] reads from [currentBackendUserProvider], the same
+  /// provider the profile screen edits through, so a name or avatar
+  /// change made there shows up here the next time this provider is
+  /// watched — no separate wiring needed. Occasional-tool entry points
+  /// used to accumulate here as one pill per feature — that queue is
+  /// gone now; see [_toolsButton] and [_spacesEntry] for where those
+  /// actions live instead.
+  Widget _header(BuildContext context, HouseMember? myMembership, AppUser? me) {
     final c = context.colors;
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        IconButton(
-          onPressed: () => Navigator.of(context).pop(),
-          style: IconButton.styleFrom(
-            backgroundColor: c.surface2,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sm.r)),
-          ),
-          icon: Icon(Icons.arrow_back, color: c.ink2, size: 20.r),
-        ),
-        SizedBox(width: Space.md.w),
-        Expanded(
-          child: Row(
-            children: [
-              SvgPicture.asset(
-                'assets/icon/quietpass_logo.svg',
-                width: 20.r,
-                height: 20.r,
+        Row(
+          children: [
+            IconButton(
+              onPressed: () => Navigator.of(context).pop(),
+              style: IconButton.styleFrom(
+                backgroundColor: c.surface2,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sm.r)),
               ),
+              icon: Icon(Icons.arrow_back, color: c.ink2, size: 20.r),
+            ),
+            SizedBox(width: Space.md.w),
+            Expanded(
+              child: Row(
+                children: [
+                  SvgPicture.asset(
+                    'assets/icon/quietpass_logo.svg',
+                    width: 20.r,
+                    height: 20.r,
+                  ),
+                  SizedBox(width: Space.xs.w),
+                  Expanded(
+                    child: Text(
+                      widget.group.name,
+                      style: context.text.titleLarge,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(width: Space.sm.w),
+            _toolsButton(context, myMembership),
+            if (myMembership != null) ...[
+              SizedBox(width: Space.sm.w),
+              IconButton(
+                onPressed: () => _leaveGroup(myMembership.membershipId),
+                style: IconButton.styleFrom(
+                  backgroundColor: c.surface2,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sm.r)),
+                ),
+                icon: Icon(Icons.logout, color: c.call.solid, size: 20.r),
+              ),
+            ],
+          ],
+        ),
+        if (me != null) ...[
+          SizedBox(height: Space.sm.h),
+          Row(
+            children: [
+              Avatar(name: me.displayName, photoUrl: me.avatarUrl, size: 20.r),
               SizedBox(width: Space.xs.w),
               Expanded(
                 child: Text(
-                  widget.group.name,
-                  style: context.text.titleLarge,
+                  'Hi, ${me.displayName}',
+                  style: context.text.bodySmall?.copyWith(color: c.ink3),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
-          ),
-        ),
-        SizedBox(width: Space.sm.w),
-        _toolsButton(context, myMembership),
-        if (myMembership != null) ...[
-          SizedBox(width: Space.sm.w),
-          IconButton(
-            onPressed: () => _leaveGroup(myMembership.membershipId),
-            style: IconButton.styleFrom(
-              backgroundColor: c.surface2,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sm.r)),
-            ),
-            icon: Icon(Icons.logout, color: c.call.solid, size: 20.r),
           ),
         ],
       ],
