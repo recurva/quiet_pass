@@ -165,9 +165,14 @@ class _StatusOptionRow extends StatelessWidget {
         width: double.infinity,
         padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.md.h),
         decoration: BoxDecoration(
-          color: selected ? c.accentTint : Colors.transparent,
+          // The selected row highlights in *this status's* own color, not
+          // the teal action accent — a row for Deep Focus should read as
+          // amber when picked, matching the pill/badge it produces, not a
+          // generic "this one's selected" teal that looks the same for
+          // every status.
+          color: selected ? style.tint : Colors.transparent,
           borderRadius: BorderRadius.circular(Radii.md.r),
-          border: Border.all(color: selected ? c.accent : c.line2),
+          border: Border.all(color: selected ? style.solid : c.line2),
         ),
         child: Row(
           children: [
@@ -180,10 +185,13 @@ class _StatusOptionRow extends StatelessWidget {
             Expanded(
               child: Text(
                 status.label,
-                style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+                style: context.text.bodyLarge?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: selected ? style.ink : null,
+                ),
               ),
             ),
-            if (selected) Icon(Icons.check_circle, color: c.accent, size: 20.r),
+            if (selected) Icon(Icons.check_circle, color: style.solid, size: 20.r),
           ],
         ),
       ),

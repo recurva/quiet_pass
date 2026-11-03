@@ -26,25 +26,27 @@ abstract final class DarkPalette {
   static const accentTint = Color(0x262FB9A9); // ~15% alpha
   static const accentRing = Color(0x662FB9A9); // ~40% alpha
 
-  // Status: solid, tint, ink-on-tint
-  static const openSolid = Color(0xFF57C08A);
-  static const openTint = Color(0x2457C08A);
+  // Status: solid, tint, ink-on-tint. Solid values are the exact approved
+  // per-status hexes (dark mode) from the Time Limits/status-color spec —
+  // tint/ink are derived around them, not independently specced.
+  static const openSolid = Color(0xFF2FB87A);
+  static const openTint = Color(0x242FB87A);
   static const openInk = Color(0xFF7FD3A6);
 
-  static const focusSolid = Color(0xFFE0A94E);
-  static const focusTint = Color(0x26E0A94E);
+  static const focusSolid = Color(0xFFE0A23D);
+  static const focusTint = Color(0x26E0A23D);
   static const focusInk = Color(0xFFE9C079);
 
-  static const callSolid = Color(0xFFE27B74);
-  static const callTint = Color(0x29E27B74);
+  static const callSolid = Color(0xFFE5564B);
+  static const callTint = Color(0x29E5564B);
   static const callInk = Color(0xFFEC9C97);
 
-  static const sleepSolid = Color(0xFF8B8FE6);
-  static const sleepTint = Color(0x298B8FE6);
+  static const sleepSolid = Color(0xFF7A7FE0);
+  static const sleepTint = Color(0x297A7FE0);
   static const sleepInk = Color(0xFFAAAEF0);
 
-  static const awaySolid = Color(0xFF8B93A3);
-  static const awayTint = Color(0x268B93A3);
+  static const awaySolid = Color(0xFF8A93A3);
+  static const awayTint = Color(0x268A93A3);
   static const awayInk = Color(0xFFAEB6C4);
 }
 
@@ -69,19 +71,19 @@ abstract final class LightPalette {
   static const accentTint = Color(0x1A12897C); // ~10% alpha
   static const accentRing = Color(0x4712897C); // ~28% alpha
 
-  static const openSolid = Color(0xFF2E9E6E);
+  static const openSolid = Color(0xFF1E9E63);
   static const openTint = Color(0xFFE4F3EB);
   static const openInk = Color(0xFF1F7A54);
 
-  static const focusSolid = Color(0xFFB9822C);
+  static const focusSolid = Color(0xFFC9872A);
   static const focusTint = Color(0xFFF8EFD9);
   static const focusInk = Color(0xFF8A6320);
 
-  static const callSolid = Color(0xFFC85A54);
+  static const callSolid = Color(0xFFD23F33);
   static const callTint = Color(0xFFFBE7E5);
   static const callInk = Color(0xFF9A3F3A);
 
-  static const sleepSolid = Color(0xFF5B63B6);
+  static const sleepSolid = Color(0xFF5B5FD0);
   static const sleepTint = Color(0xFFEAEBF6);
   static const sleepInk = Color(0xFF3F4694);
 

@@ -457,7 +457,11 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
             builder: (context) => Container(
               padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.sm.h),
               decoration: BoxDecoration(
-                color: c.accent,
+                // Colored by the status itself (tint/ink — the same
+                // contrast-safe pairing StatusBadge already uses for
+                // housemates, below) rather than always the teal accent,
+                // which read as "every status is Open to Chat" visually.
+                color: style.tint,
                 borderRadius: BorderRadius.circular(Radii.pill.r),
               ),
               child: Row(
@@ -466,12 +470,12 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
                   Container(
                     width: 8.r,
                     height: 8.r,
-                    decoration: BoxDecoration(color: c.onAccent, shape: BoxShape.circle),
+                    decoration: BoxDecoration(color: style.solid, shape: BoxShape.circle),
                   ),
                   SizedBox(width: Space.sm.w),
                   Text(
                     displayedStatus.label,
-                    style: context.text.labelLarge?.copyWith(color: c.onAccent, fontWeight: FontWeight.w700),
+                    style: context.text.labelLarge?.copyWith(color: style.ink, fontWeight: FontWeight.w700),
                   ),
                 ],
               ),
