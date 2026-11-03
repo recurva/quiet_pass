@@ -36,9 +36,31 @@ final groupStatusClientProvider =
   return client;
 });
 
+/// Seeds from [GroupStatusClient.currentStatuses] before forwarding
+/// [GroupStatusClient.statuses] — not just `return client.statuses`.
+///
+/// This provider is `autoDispose`, but the [GroupStatusClient] underneath
+/// it frequently isn't torn down when it is: [groupPendingNudgesProvider]
+/// and [groupPendingUrgentAccessRequestsProvider] are deliberately *not*
+/// `autoDispose` and each `ref.listen`s a stream that transitively watches
+/// [groupStatusClientProvider], which keeps that WebSocket open for as
+/// long as the app runs, not just while a group screen is mounted (see
+/// that provider's doc comment). So navigating away from the group screen
+/// and back disposes *this* provider's cached value, but does not
+/// reconnect the socket and does not trigger a fresh `snapshot` message —
+/// and `statuses`'s underlying controller is a broadcast stream, which
+/// never replays old events to a new subscriber. Without the seed below,
+/// the newly-recreated provider would sit with no value at all (so the
+/// home screen's status pill falls back to Open to Chat) until some
+/// unrelated event happened to arrive on the socket. Seeding synchronously
+/// from the client's own in-memory map sidesteps that entirely: the
+/// correct current status is available immediately, however the
+/// WebSocket connection underneath happens to be behaving.
 final groupStatusesProvider =
-    StreamProvider.autoDispose.family<Map<String, MemberStatus>, String>((ref, groupId) {
-  return ref.watch(groupStatusClientProvider(groupId)).statuses;
+    StreamProvider.autoDispose.family<Map<String, MemberStatus>, String>((ref, groupId) async* {
+  final client = ref.watch(groupStatusClientProvider(groupId));
+  yield client.currentStatuses;
+  yield* client.statuses;
 });
 
 /// The seam for a future FCM swap: the group-detail screen only ever watches

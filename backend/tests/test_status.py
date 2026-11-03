@@ -2,6 +2,8 @@
 expiry resolving to Open to Chat, and the "never set anything" default.
 """
 
+import asyncio
+
 from tests.conftest import auth_headers
 
 
@@ -122,3 +124,81 @@ async def test_an_expired_status_resolves_back_to_open_to_chat(client, redis_cli
     )
     assert response.status_code == 200
     assert response.json()["status"] == "open_to_chat"
+
+
+async def test_status_persists_across_independent_rereads_within_ttl(client):
+    """Regression for the client bug where returning to the group screen
+    showed Open to Chat even though the real TTL hadn't expired: the
+    client-side fix (groups_providers.dart's groupStatusesProvider) relies
+    entirely on the *backend* still reporting the true status on any
+    independent re-fetch — a simulated reconnect's fresh WS `snapshot`, or
+    a plain GET, must both reflect the exact same live value, repeatedly,
+    not just immediately after the write. Nothing here should ever revert
+    to open_to_chat early: the TTL is 2 hours, comfortably longer than
+    this test takes to run.
+    """
+    a = await _sign_in(client, "uid-st-8", "+914444440008", "A")
+    group = await _create_group(client, "uid-st-8", "+914444440008")
+
+    set_response = await client.put(
+        f"/api/v1/groups/{group['id']}/status",
+        headers=auth_headers("uid-st-8", "+914444440008"),
+        json={"status": "sleeping_early", "duration_minutes": 120},
+    )
+    assert set_response.status_code == 200
+
+    # Three independent reads, standing in for: a GET refetch, a second
+    # member's own status snapshot of the group, and a simulated WebSocket
+    # reconnect's fresh snapshot (get_group_statuses is exactly what the
+    # ws route calls on every accept()) — none of these should see
+    # anything other than the status actually set above.
+    for _ in range(3):
+        single = await client.get(
+            f"/api/v1/groups/{group['id']}/status/{a['id']}",
+            headers=auth_headers("uid-st-8", "+914444440008"),
+        )
+        assert single.status_code == 200
+        assert single.json()["status"] == "sleeping_early"
+        assert single.json()["ttl_seconds"] is not None
+        assert single.json()["ttl_seconds"] > 0
+
+        snapshot = await client.get(
+            f"/api/v1/groups/{group['id']}/status",
+            headers=auth_headers("uid-st-8", "+914444440008"),
+        )
+        assert snapshot.status_code == 200
+        entries = {row["user_id"]: row for row in snapshot.json()}
+        assert entries[a["id"]]["status"] == "sleeping_early"
+
+
+async def test_status_reverts_to_open_to_chat_only_after_real_expiry(client, redis_client):
+    """A genuine real-time TTL expiry (not the "delete the key to simulate
+    lapsed TTL" shortcut the other expiry test uses) — written directly
+    against Redis with a short TTL, since the API itself enforces a
+    30-minute floor on every timed status and a real test can't wait that
+    long. Confirms both halves: still correct status while time remains,
+    reverted only once the clock has actually run out.
+    """
+    a = await _sign_in(client, "uid-st-9", "+914444440009", "A")
+    group = await _create_group(client, "uid-st-9", "+914444440009")
+
+    key = f"status:{group['id']}:{a['id']}"
+    await redis_client.set(key, "deep_focus", ex=1)
+
+    still_active = await client.get(
+        f"/api/v1/groups/{group['id']}/status/{a['id']}",
+        headers=auth_headers("uid-st-9", "+914444440009"),
+    )
+    assert still_active.status_code == 200
+    assert still_active.json()["status"] == "deep_focus"
+
+    await asyncio.sleep(1.5)
+
+    expired = await client.get(
+        f"/api/v1/groups/{group['id']}/status/{a['id']}",
+        headers=auth_headers("uid-st-9", "+914444440009"),
+    )
+    assert expired.status_code == 200
+    assert expired.json()["status"] == "open_to_chat"
+    assert expired.json()["ttl_seconds"] is None
+    assert expired.json()["expires_at"] is None

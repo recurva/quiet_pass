@@ -44,7 +44,22 @@ class GroupStatusClient {
 
   /// Emits the full current `{userId: MemberStatus}` map on every change
   /// (including the initial snapshot).
+  ///
+  /// [_statusesController] is a *broadcast* controller, which never replays
+  /// past events to a listener that subscribes late — and
+  /// [groupStatusClientProvider] (groups_providers.dart) is deliberately
+  /// kept alive across navigation by the pending-nudges/urgent-access
+  /// notifiers, so the one-time `snapshot` this socket already received
+  /// often has nothing to do with when a given screen re-subscribes. Use
+  /// [currentStatuses] to seed a late subscriber instead of relying on this
+  /// stream alone to carry the current value.
   Stream<Map<String, MemberStatus>> get statuses => _statusesController.stream;
+
+  /// The current `{userId: MemberStatus}` map right now, synchronously —
+  /// whatever the last `snapshot` or `status_update` left in memory, even
+  /// if that arrived long before whoever's asking started listening to
+  /// [statuses]. See [statuses]'s doc comment for why this exists.
+  Map<String, MemberStatus> get currentStatuses => Map.of(_current);
 
   /// Emits one event per nudge received, in real time.
   Stream<AppNudge> get nudges => _nudgesController.stream;
