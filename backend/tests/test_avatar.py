@@ -7,6 +7,7 @@ import io
 
 from PIL import Image
 
+from app.core.config import settings
 from tests.conftest import auth_headers
 
 
@@ -49,7 +50,10 @@ async def test_uploading_an_avatar_sets_the_url(client, _fake_avatar_storage):
     assert response.status_code == 200
     body = response.json()
     assert body["avatar_url"] is not None
-    assert body["avatar_url"].endswith(f"avatars/{user['id']}.jpg")
+    # Not .endswith(...) — the URL carries a cache-busting `?v=` query
+    # param after the object path (see test_reuploading_gets_a_different_
+    # cache_busted_url below for why).
+    assert f"avatars/{user['id']}.jpg?v=" in body["avatar_url"]
 
     # The actual processed bytes genuinely landed in storage, not just a
     # URL string being returned.
@@ -165,7 +169,45 @@ async def test_avatar_url_appears_in_the_housemates_payload(client, _fake_avatar
     a_profile = await client.get(f"/api/v1/users/{a['id']}", headers=auth_headers("uid-av-9", "+919000000009"))
     assert a_profile.status_code == 200
     assert a_profile.json()["avatar_url"] is not None
-    assert a_profile.json()["avatar_url"].endswith(f"avatars/{a['id']}.jpg")
+    assert f"avatars/{a['id']}.jpg?v=" in a_profile.json()["avatar_url"]
+
+
+async def test_reuploading_gets_a_different_cache_busted_url(client, _fake_avatar_storage):
+    """The GCS object path (avatars/{user_id}.jpg) never changes between
+    uploads -- it's overwritten in place by design (avatar_service's own
+    module docstring). Without something that actually changes in the
+    URL stored on the user, a replaced photo would show stale bytes
+    forever to any client (Flutter's own ImageCache included) that had
+    already fetched the old URL, since both the framework-level image
+    cache and typical HTTP caching key on the exact URL. This is the
+    regression test for that: two uploads for the same user must produce
+    two different avatar_url values, even though the underlying object
+    name is identical both times.
+    """
+    user = await _sign_in(client, "uid-av-12", "+919000000012", "A")
+
+    first = await client.put(
+        "/api/v1/users/me/avatar",
+        headers=auth_headers("uid-av-12", "+919000000012"),
+        files={"file": ("first.jpg", _fake_jpeg_bytes(), "image/jpeg")},
+    )
+    first_url = first.json()["avatar_url"]
+
+    second = await client.put(
+        "/api/v1/users/me/avatar",
+        headers=auth_headers("uid-av-12", "+919000000012"),
+        files={"file": ("second.jpg", _fake_jpeg_bytes(size=(400, 400)), "image/jpeg")},
+    )
+    second_url = second.json()["avatar_url"]
+
+    assert first_url != second_url
+    # Same underlying object both times -- confirms it's the query string
+    # doing the cache-busting, not a change to the object path itself
+    # (which would mean the old object is now orphaned in the bucket).
+    object_path = f"avatars/{user['id']}.jpg"
+    expected_base = f"https://storage.googleapis.com/{settings.avatar_bucket_name}/{object_path}"
+    assert first_url.split("?")[0] == second_url.split("?")[0] == expected_base
+    assert object_path in _fake_avatar_storage.uploaded
 
 
 async def test_a_user_cannot_set_another_users_avatar(client, _fake_avatar_storage):

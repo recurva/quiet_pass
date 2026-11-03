@@ -19,6 +19,7 @@ service in this app already has.
 """
 
 import io
+import time
 import uuid
 
 from google.cloud import storage
@@ -113,9 +114,26 @@ def upload_avatar(user_id: uuid.UUID, raw: bytes, content_type: str | None) -> s
     object_name = _object_name(user_id)
     bucket = _get_client().bucket(settings.avatar_bucket_name)
     blob = bucket.blob(object_name)
+    # The object itself is immutable from here on *for this exact URL*:
+    # a later re-upload gets a brand new `?v=` below, never this one, so
+    # it's safe (and faster for every viewer) to let it be cached
+    # essentially forever rather than falling back to GCS's own default.
+    blob.cache_control = "public, max-age=31536000, immutable"
     blob.upload_from_string(processed, content_type="image/jpeg")
 
-    url = f"https://storage.googleapis.com/{settings.avatar_bucket_name}/{object_name}"
+    # `avatars/{user_id}.jpg` is the same object path on every upload —
+    # overwritten in place, by design (see this module's docstring) — so
+    # without something that actually changes here, every client's own
+    # image cache (Flutter's ImageCache keys purely on URL, decoded
+    # bytes and all) and any HTTP-level cache in between keep serving
+    # whatever bytes they first saw at this URL, even after the object
+    # underneath has genuinely changed. The query string is what breaks
+    # that: it has no effect on which GCS object is fetched, but it does
+    # change the full URL stored in avatar_url, which is the cache key
+    # everywhere that matters client-side. Milliseconds, not seconds, so
+    # two uploads within the same second still get distinct URLs.
+    version = int(time.time() * 1000)
+    url = f"https://storage.googleapis.com/{settings.avatar_bucket_name}/{object_name}?v={version}"
     logger.info("avatar.uploaded", user_id=str(user_id), size_bytes=len(processed))
     return url
 
