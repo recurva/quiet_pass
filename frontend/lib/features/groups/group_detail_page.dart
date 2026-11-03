@@ -178,9 +178,26 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
                         ),
                         error: (error, _) => Padding(
                           padding: EdgeInsets.all(Space.base.w),
-                          child: Text(
-                            friendlyErrorMessage(error),
-                            style: context.text.bodySmall?.copyWith(color: c.ink3),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  friendlyErrorMessage(error),
+                                  style: context.text.bodySmall?.copyWith(color: c.ink3),
+                                ),
+                              ),
+                              SizedBox(width: Space.sm.w),
+                              PressFeedback(
+                                onTap: () => ref.invalidate(groupMembersProvider(widget.group.id)),
+                                child: Text(
+                                  'Retry',
+                                  style: context.text.bodySmall?.copyWith(
+                                    color: c.accent,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                         data: (members) {

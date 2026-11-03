@@ -5,6 +5,25 @@ import 'group_models.dart';
 import 'house_status_wire.dart';
 import 'nudge_wire.dart';
 
+/// Retries [request] on a *transport*-level failure only — [ApiException]
+/// with `statusCode == 0`, [ApiClient._guarded]'s catch-all for "never got
+/// a response at all" (DNS hiccup, dropped connection, etc. — see its own
+/// doc comment). A real application error (403, 404, a validation 400...)
+/// is never retried here: retrying those would just waste time before
+/// showing the same answer again. Short, fixed backoff rather than true
+/// exponential — this is a few hundred milliseconds of insurance against
+/// one flaky packet, not a long-running resilience strategy.
+Future<T> _withTransportRetry<T>(Future<T> Function() request, {int attempts = 3}) async {
+  for (var attempt = 1; ; attempt++) {
+    try {
+      return await request();
+    } on ApiException catch (e) {
+      if (e.statusCode != 0 || attempt >= attempts) rethrow;
+      await Future<void>.delayed(Duration(milliseconds: 250 * attempt));
+    }
+  }
+}
+
 /// Wraps the backend's user/group endpoints for the Flutter side. The
 /// caller's identity always comes from the Bearer token ApiClient attaches,
 /// never from a parameter here.
@@ -79,10 +98,22 @@ class GroupsRepository {
   }
 
   /// Members of a group, each paired with their profile. N+1 over
-  /// GET /users/{id}, run in parallel; fine for typical house sizes.
+  /// GET /users/{id}, run in parallel; fine for typical house sizes in
+  /// terms of load, but it does mean this succeeds only if every one of
+  /// the 1+N requests does — on a flaky connection, a house of 4 makes
+  /// this roughly 4x as likely to fail on any given load as a single
+  /// request would be, which is exactly what surfaced as "housemates
+  /// sometimes fails to load, with no retry, on some devices but not
+  /// others on the same house" (a per-device network quality difference,
+  /// amplified by the fan-out here, not a backend issue — the backend's
+  /// own request logs for both endpoints show fast, successful
+  /// responses throughout). [_withTransportRetry] gives each request a
+  /// couple of quick extra tries before the whole thing gives up.
   Future<List<HouseMember>> fetchHouseMembers(String groupId) async {
-    final memberships = await fetchMembers(groupId);
-    final users = await Future.wait(memberships.map((m) => fetchUser(m.userId)));
+    final memberships = await _withTransportRetry(() => fetchMembers(groupId));
+    final users = await Future.wait(
+      memberships.map((m) => _withTransportRetry(() => fetchUser(m.userId))),
+    );
     return [
       for (var i = 0; i < memberships.length; i++)
         HouseMember(membershipId: memberships[i].id, user: users[i], role: memberships[i].role),
