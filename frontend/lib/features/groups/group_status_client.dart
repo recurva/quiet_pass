@@ -39,6 +39,7 @@ class GroupStatusClient {
   final _dinnerUpdatedController = StreamController<void>.broadcast();
   final _agreementUpdatedController = StreamController<void>.broadcast();
   final _wifiUpdatedController = StreamController<void>.broadcast();
+  final _spaceUpdatedController = StreamController<void>.broadcast();
   final _reservationCancelledController = StreamController<void>.broadcast();
   final _urgentAccessRequestsController = StreamController<UrgentAccessRequest>.broadcast();
 
@@ -111,6 +112,10 @@ class GroupStatusClient {
   /// Fires once per Wi-Fi details change — an admin updating the SSID or
   /// password. Same "just a signal, refetch" shape as [agreementUpdated].
   Stream<void> get wifiUpdated => _wifiUpdatedController.stream;
+
+  /// Fires once per space change — an admin adding or removing a custom
+  /// space. Same "just a signal, refetch" shape as [wifiUpdated].
+  Stream<void> get spaceUpdated => _spaceUpdatedController.stream;
 
   Future<void> connect() async {
     if (_disposed) return;
@@ -201,6 +206,10 @@ class GroupStatusClient {
         if (!_wifiUpdatedController.isClosed) {
           _wifiUpdatedController.add(null);
         }
+      case 'space_update':
+        if (!_spaceUpdatedController.isClosed) {
+          _spaceUpdatedController.add(null);
+        }
       case 'reservation_cancelled':
         if (!_reservationCancelledController.isClosed) {
           _reservationCancelledController.add(null);
@@ -231,6 +240,7 @@ class GroupStatusClient {
     _dinnerUpdatedController.close();
     _agreementUpdatedController.close();
     _wifiUpdatedController.close();
+    _spaceUpdatedController.close();
     _reservationCancelledController.close();
     _urgentAccessRequestsController.close();
   }

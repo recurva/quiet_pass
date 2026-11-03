@@ -60,12 +60,13 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
     final c = context.colors;
     final groupId = widget.groupId;
 
-    // Keeps the reservation/chore lists refetched live as WebSocket
-    // `reservation` events arrive — see the provider's doc comment.
+    // Keeps the reservation/chore/space lists refetched live as WebSocket
+    // events arrive — see each provider's doc comment.
     ref.watch(groupReservationsLiveRefreshProvider(groupId));
     ref.watch(groupMembersLiveRefreshProvider(groupId));
     ref.watch(groupChoresLiveRefreshProvider(groupId));
     ref.watch(groupMyRecurringSeriesLiveRefreshProvider(groupId));
+    ref.watch(groupSpacesLiveRefreshProvider(groupId));
 
     final spacesAsync = ref.watch(groupSpacesProvider(groupId));
     final reservationsAsync = ref.watch(groupReservationsProvider(groupId));
@@ -101,6 +102,14 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
 
     return Scaffold(
       backgroundColor: c.bg,
+      floatingActionButton: isAdmin
+          ? FloatingActionButton(
+              backgroundColor: c.accent,
+              foregroundColor: c.onAccent,
+              onPressed: () => _addSpace(context, ref, groupId),
+              child: const Icon(Icons.add),
+            )
+          : null,
       body: SafeArea(
         child: SingleChildScrollView(
           padding: EdgeInsets.all(Space.base.w),
@@ -346,6 +355,19 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
     );
   }
 
+  Future<void> _addSpace(BuildContext context, WidgetRef ref, String groupId) async {
+    final name = await _showAddSpaceSheet(context);
+    if (name == null || !context.mounted) return;
+
+    try {
+      await ref.read(groupsRepositoryProvider).createSpace(groupId, name);
+      Haptics.commit();
+      ref.invalidate(groupSpacesProvider(groupId));
+    } on ApiException catch (e) {
+      if (context.mounted) showAppSnackBar(context, e.message);
+    }
+  }
+
   Widget _header(BuildContext context) {
     final c = context.colors;
     return Row(
@@ -371,6 +393,121 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
         ),
       ],
     );
+  }
+}
+
+/// Shows the "name this space" sheet. Returns the trimmed name, or null if
+/// dismissed without confirming — a pure picker, same shape as
+/// showCustomNudgeSheet: it never calls the backend itself, so a stray
+/// dismiss can never swallow a create or its error.
+Future<String?> _showAddSpaceSheet(BuildContext context) {
+  return showModalBottomSheet<String>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => const _AddSpaceSheet(),
+  );
+}
+
+class _AddSpaceSheet extends StatefulWidget {
+  const _AddSpaceSheet();
+
+  @override
+  State<_AddSpaceSheet> createState() => _AddSpaceSheetState();
+}
+
+class _AddSpaceSheetState extends State<_AddSpaceSheet> {
+  final _controller = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+
+    return Padding(
+      padding: EdgeInsets.only(
+        left: Space.base.w,
+        right: Space.base.w,
+        top: Space.base.h,
+        bottom: MediaQuery.of(context).viewInsets.bottom + Space.base.h,
+      ),
+      child: Container(
+        padding: EdgeInsets.all(Space.base.w),
+        decoration: BoxDecoration(
+          color: c.surface,
+          borderRadius: BorderRadius.circular(Radii.lg.r),
+          border: Border.all(color: c.line),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Add a space', style: context.text.titleLarge),
+            SizedBox(height: Space.sm.h),
+            Text(
+              'A new bookable space for the house — works just like Kitchen or '
+              'Main Desk.',
+              style: context.text.bodySmall,
+            ),
+            SizedBox(height: Space.lg.h),
+            TextField(
+              controller: _controller,
+              autofocus: true,
+              maxLength: 80,
+              textCapitalization: TextCapitalization.words,
+              style: context.text.bodyLarge?.copyWith(color: c.ink),
+              decoration: InputDecoration(
+                counterText: '',
+                hintText: 'e.g. Garage, Rooftop',
+                hintStyle: context.text.bodyLarge?.copyWith(color: c.ink3),
+                filled: true,
+                fillColor: c.surface2,
+                contentPadding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.md.h),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(Radii.md.r),
+                  borderSide: BorderSide(color: c.line2),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(Radii.md.r),
+                  borderSide: BorderSide(color: c.line2),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(Radii.md.r),
+                  borderSide: BorderSide(color: c.accent),
+                ),
+              ),
+            ),
+            if (_error != null) ...[
+              SizedBox(height: Space.sm.h),
+              Text(_error!, style: context.text.bodySmall?.copyWith(color: c.call.solid)),
+            ],
+            SizedBox(height: Space.lg.h),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: _submit,
+                child: const Text('Add'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _submit() {
+    final name = _controller.text.trim();
+    if (name.isEmpty) {
+      setState(() => _error = 'Enter a name.');
+      return;
+    }
+    Navigator.of(context).pop(name);
   }
 }
 
@@ -460,6 +597,16 @@ class _SpaceCard extends ConsumerWidget {
                   fontWeight: FontWeight.w600,
                 ),
               ),
+              if (isAdmin) ...[
+                SizedBox(width: Space.xs.w),
+                PressFeedback(
+                  onTap: () => _confirmRemove(context, ref, sorted.isNotEmpty),
+                  child: Padding(
+                    padding: EdgeInsets.all(2.r),
+                    child: Icon(Icons.delete_outline, size: 18.r, color: c.ink3),
+                  ),
+                ),
+              ],
             ],
           ),
           if (activeNow != null) ...[
@@ -541,6 +688,47 @@ class _SpaceCard extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _confirmRemove(BuildContext context, WidgetRef ref, bool hasBookings) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        final c = context.colors;
+        return AlertDialog(
+          backgroundColor: c.surface,
+          title: const Text('Remove this space?'),
+          content: Text(
+            hasBookings
+                ? 'Every booking on "${space.name}" — including anyone else\'s — '
+                    'will be cancelled. This can\'t be undone.'
+                : 'This can\'t be undone.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: Text('Remove', style: TextStyle(color: c.call.solid)),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    try {
+      await ref.read(groupsRepositoryProvider).removeSpace(groupId, space.id);
+      Haptics.commit();
+      ref.invalidate(groupSpacesProvider(groupId));
+      ref.invalidate(groupReservationsProvider(groupId));
+      ref.invalidate(groupChoresProvider(groupId));
+      ref.invalidate(groupMyRecurringSeriesProvider(groupId));
+    } on ApiException catch (e) {
+      if (context.mounted) showAppSnackBar(context, e.message);
+    }
   }
 
   /// Builds one row per reservation, except every occurrence of the same

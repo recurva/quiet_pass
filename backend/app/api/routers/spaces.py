@@ -5,7 +5,7 @@ from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.authz import require_membership
+from app.api.authz import require_admin, require_membership
 from app.api.deps import get_current_user, get_db, get_redis
 from app.core.logging import get_logger
 from app.models.membership import MembershipRole
@@ -13,8 +13,8 @@ from app.models.space import Space
 from app.models.user import User
 from app.schemas.chore import ChoreRead
 from app.schemas.reservation import ReservationCreate, ReservationRead, ReservationWithChore
-from app.schemas.space import SpaceRead
-from app.services import reservation_service
+from app.schemas.space import SpaceCreate, SpaceRead
+from app.services import reservation_service, space_service
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/groups/{group_id}", tags=["spaces"])
@@ -29,6 +29,39 @@ async def list_spaces(
     await require_membership(db, group_id=group_id, user_id=current_user.id)
     result = await db.execute(select(Space).where(Space.group_id == group_id))
     return list(result.scalars().all())
+
+
+@router.post("/spaces", response_model=SpaceRead, status_code=status.HTTP_201_CREATED)
+async def create_space(
+    group_id: uuid.UUID,
+    payload: SpaceCreate,
+    db: AsyncSession = Depends(get_db),
+    redis: Redis = Depends(get_redis),
+    current_user: User = Depends(get_current_user),
+) -> SpaceRead:
+    """Add a custom space (admin-only). A new space behaves identically to
+    the three seeded defaults — same reservations table, same booking
+    rules, same chore pass — since it's just another row there.
+    """
+    await require_admin(db, group_id=group_id, user_id=current_user.id)
+    return await space_service.create_space(db, redis, group_id=group_id, payload=payload)
+
+
+@router.delete("/spaces/{space_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_space(
+    group_id: uuid.UUID,
+    space_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    redis: Redis = Depends(get_redis),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    """Remove a space (admin-only). Cancels every booking on it first —
+    see space_service.remove_space.
+    """
+    await require_admin(db, group_id=group_id, user_id=current_user.id)
+    await space_service.remove_space(
+        db, redis, group_id=group_id, space_id=space_id, acting_user_id=current_user.id
+    )
 
 
 @router.get("/reservations", response_model=list[ReservationRead])

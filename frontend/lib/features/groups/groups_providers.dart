@@ -76,6 +76,19 @@ final groupSpacesProvider = FutureProvider.autoDispose.family<List<AppSpace>, St
   return ref.watch(groupsRepositoryProvider).fetchSpaces(groupId);
 });
 
+/// Refetches the space list whenever a `space_update` event arrives (an
+/// admin adding or removing a custom space) — same "signal, then
+/// refetch" shape as [groupWifiLiveRefreshProvider].
+final groupSpacesLiveRefreshProvider = Provider.autoDispose.family<void, String>((ref, groupId) {
+  ref.listen(groupSpaceEventsProvider(groupId), (previous, next) {
+    next.whenData((_) => ref.invalidate(groupSpacesProvider(groupId)));
+  });
+});
+
+final groupSpaceEventsProvider = StreamProvider.autoDispose.family<void, String>((ref, groupId) {
+  return ref.watch(groupStatusClientProvider(groupId)).spaceUpdated;
+});
+
 final groupReservationsProvider =
     FutureProvider.autoDispose.family<List<AppReservation>, String>((ref, groupId) {
   return ref.watch(groupsRepositoryProvider).fetchReservations(groupId);

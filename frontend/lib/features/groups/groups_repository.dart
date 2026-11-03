@@ -190,6 +190,21 @@ class GroupsRepository {
         .toList();
   }
 
+  /// Adds a custom space (admin-only server-side). It behaves identically
+  /// to the three seeded defaults — same reservation rules, same
+  /// Free/Reserved/In-use badge, same chore pass — since it's just
+  /// another row in the same table there.
+  Future<AppSpace> createSpace(String groupId, String name) async {
+    final json = await _client.post('/groups/$groupId/spaces', body: {'name': name});
+    return AppSpace.fromJson(json as Map<String, dynamic>);
+  }
+
+  /// Removes a space (admin-only server-side). Cancels every booking on
+  /// it first — see the backend's space_service.remove_space.
+  Future<void> removeSpace(String groupId, String spaceId) async {
+    await _client.delete('/groups/$groupId/spaces/$spaceId');
+  }
+
   /// Books a space. [startTime] is sent as UTC regardless of what timezone
   /// it was constructed in locally — the backend only ever deals in UTC.
   Future<(AppReservation, AppChore)> createReservation(
