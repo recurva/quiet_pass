@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
+import '../../theme/app_sheet.dart';
 import '../../theme/dimens.dart';
 import '../../theme/motion.dart';
 import '../../theme/status_widgets.dart';
@@ -17,10 +18,8 @@ import '../../theme/theme_x.dart';
 /// here has a pending request whose result depends on this widget still
 /// being mounted.
 Future<int?> showQuietPulseSheet(BuildContext context) {
-  return showModalBottomSheet<int>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
+  return showAppSheet<int>(
+    context,
     builder: (_) => const _QuietPulseSheet(),
   );
 }

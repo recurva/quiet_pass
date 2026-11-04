@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
+import '../../theme/app_sheet.dart';
 import '../../theme/dimens.dart';
 import '../../theme/theme_x.dart';
 import 'push_providers.dart';
@@ -12,10 +13,8 @@ import 'push_providers.dart';
 /// anything the app does. Explains *why* before the OS permission prompt
 /// appears, rather than surprising them with a bare system dialog.
 Future<void> showPushPermissionSheet(BuildContext context) {
-  return showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
+  return showAppSheet<void>(
+    context,
     builder: (_) => const _PushPermissionSheet(),
   );
 }

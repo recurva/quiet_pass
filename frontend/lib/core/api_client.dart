@@ -54,15 +54,23 @@ class ApiClient {
   final http.Client _http;
   final AuthTokenStore _tokenStore;
 
+  /// Both [_authHeaders] and [_authHeaderOnly] throw [ApiException] (never
+  /// a bare [StateError]) when there's no signed-in user or Firebase
+  /// returns no token — this used to throw [StateError] directly, which
+  /// every call site's `on ApiException catch (e)` doesn't catch: the
+  /// mutation would fail before ever reaching [_http] (so the network tab
+  /// shows nothing), with no snackbar/error text either, since nothing
+  /// downstream was listening for that type. [ApiException] is what every
+  /// screen in this app already knows how to show, so routing this
+  /// through the same type is the actual fix, not a one-off patch to
+  /// whichever screen happened to hit it first.
+  static final _noUser = ApiException(401, "You're signed out. Please sign in again.");
+
   Future<Map<String, String>> _authHeaders() async {
     final user = _auth.currentUser;
-    if (user == null) {
-      throw StateError('No signed-in user to authorize the request.');
-    }
+    if (user == null) throw _noUser;
     final token = await user.getIdToken();
-    if (token == null) {
-      throw StateError('Firebase returned no ID token for the signed-in user.');
-    }
+    if (token == null) throw _noUser;
     await _tokenStore.save(token);
     return {
       'Authorization': 'Bearer $token',
@@ -76,13 +84,9 @@ class ApiClient {
   /// a manually-set JSON content type here would just be overwritten.
   Future<Map<String, String>> _authHeaderOnly() async {
     final user = _auth.currentUser;
-    if (user == null) {
-      throw StateError('No signed-in user to authorize the request.');
-    }
+    if (user == null) throw _noUser;
     final token = await user.getIdToken();
-    if (token == null) {
-      throw StateError('Firebase returned no ID token for the signed-in user.');
-    }
+    if (token == null) throw _noUser;
     await _tokenStore.save(token);
     return {'Authorization': 'Bearer $token'};
   }
@@ -187,15 +191,13 @@ class ApiClient {
   /// `ClientException`/`SocketException` whose message ("Failed host
   /// lookup: '...'  (OS Error: No address associated with hostname,
   /// errno = 7)") is Dart/OS internals, not something to show a user.
-  /// [ApiException] itself and the auth-layer [StateError]s from
-  /// `_authHeaders` pass through unchanged — both already carry a message
-  /// meant to be seen (or handled specifically) by the caller.
+  /// [ApiException] itself (including the auth-layer one `_authHeaders`/
+  /// `_authHeaderOnly` throw when there's no signed-in user) passes
+  /// through unchanged — it already carries a message meant to be shown.
   Future<T> _guarded<T>(Future<T> Function() request) async {
     try {
       return await request();
     } on ApiException {
-      rethrow;
-    } on StateError {
       rethrow;
     } catch (_) {
       throw ApiException(0, 'Can\'t reach the server. Check your connection and try again.');

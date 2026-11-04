@@ -10,6 +10,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../core/api_client.dart';
 import '../../core/local_time.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/app_sheet.dart';
 import '../../theme/app_snackbar.dart';
 import '../../theme/avatar.dart';
 import '../../theme/dimens.dart';
@@ -1004,9 +1005,8 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
     required String confirmLabel,
   }) {
     final c = context.colors;
-    return showModalBottomSheet<bool>(
-      context: context,
-      backgroundColor: Colors.transparent,
+    return showAppSheet<bool>(
+      context,
       builder: (sheetContext) => Padding(
         padding: EdgeInsets.all(Space.base.w),
         child: Container(

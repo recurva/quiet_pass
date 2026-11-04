@@ -4,6 +4,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../core/api_client.dart';
 import '../../core/local_time.dart';
+import '../../theme/app_sheet.dart';
 import '../../theme/app_snackbar.dart';
 import '../../theme/avatar.dart';
 import '../../theme/dimens.dart';
@@ -401,10 +402,8 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
 /// showCustomNudgeSheet: it never calls the backend itself, so a stray
 /// dismiss can never swallow a create or its error.
 Future<String?> _showAddSpaceSheet(BuildContext context) {
-  return showModalBottomSheet<String>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
+  return showAppSheet<String>(
+    context,
     builder: (_) => const _AddSpaceSheet(),
   );
 }
@@ -1444,15 +1443,23 @@ class _ChoreSeriesGroupRowState extends State<_ChoreSeriesGroupRow> {
 /// The single most-urgent chore of the caller's own, shown as the mockup's
 /// gradient-tinted hero card instead of a plain row — any further chores
 /// of the caller's own render as plain [_ChoreRow]s underneath.
-class _YourNextChoreCard extends ConsumerWidget {
+class _YourNextChoreCard extends ConsumerStatefulWidget {
   const _YourNextChoreCard({required this.groupId, required this.chore});
 
   final String groupId;
   final AppChore chore;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_YourNextChoreCard> createState() => _YourNextChoreCardState();
+}
+
+class _YourNextChoreCardState extends ConsumerState<_YourNextChoreCard> {
+  bool _busy = false;
+
+  @override
+  Widget build(BuildContext context) {
     final c = context.colors;
+    final chore = widget.chore;
     final now = DateTime.now().toUtc();
     final isDue = now.isAfter(chore.dueAt);
     final isSoon = !isDue && chore.dueAt.difference(now) <= const Duration(hours: 1);
@@ -1495,8 +1502,14 @@ class _YourNextChoreCard extends ConsumerWidget {
           SizedBox(
             width: double.infinity,
             child: FilledButton(
-              onPressed: () => _markDone(context, ref),
-              child: const Text('Mark done'),
+              onPressed: _busy ? null : _markDone,
+              child: _busy
+                  ? SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: c.onAccent),
+                    )
+                  : const Text('Mark done'),
             ),
           ),
         ],
@@ -1504,18 +1517,21 @@ class _YourNextChoreCard extends ConsumerWidget {
     );
   }
 
-  Future<void> _markDone(BuildContext context, WidgetRef ref) async {
+  Future<void> _markDone() async {
+    setState(() => _busy = true);
     try {
-      await ref.read(groupsRepositoryProvider).markChoreDone(chore.id);
+      await ref.read(groupsRepositoryProvider).markChoreDone(widget.chore.id);
       Haptics.commit();
-      ref.invalidate(groupChoresProvider(groupId));
+      ref.invalidate(groupChoresProvider(widget.groupId));
     } on ApiException catch (e) {
-      if (context.mounted) showAppSnackBar(context, e.message);
+      if (mounted) showAppSnackBar(context, e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 }
 
-class _ChoreRow extends ConsumerWidget {
+class _ChoreRow extends ConsumerStatefulWidget {
   const _ChoreRow({required this.groupId, required this.chore, required this.isWeekly});
 
   final String groupId;
@@ -1523,8 +1539,17 @@ class _ChoreRow extends ConsumerWidget {
   final bool isWeekly;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_ChoreRow> createState() => _ChoreRowState();
+}
+
+class _ChoreRowState extends ConsumerState<_ChoreRow> {
+  bool _busy = false;
+
+  @override
+  Widget build(BuildContext context) {
     final c = context.colors;
+    final chore = widget.chore;
+    final isWeekly = widget.isWeekly;
     final isDue = DateTime.now().toUtc().isAfter(chore.dueAt);
 
     return Container(
@@ -1562,27 +1587,36 @@ class _ChoreRow extends ConsumerWidget {
           ),
           SizedBox(width: Space.sm.w),
           OutlinedButton(
-            onPressed: () => _markDone(context, ref),
+            onPressed: _busy ? null : _markDone,
             style: OutlinedButton.styleFrom(
               foregroundColor: c.ink2,
               side: BorderSide(color: c.line2),
               padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.xs.h),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sm.r)),
             ),
-            child: const Text('Done'),
+            child: _busy
+                ? SizedBox(
+                    width: 14.r,
+                    height: 14.r,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: c.ink2),
+                  )
+                : const Text('Done'),
           ),
         ],
       ),
     );
   }
 
-  Future<void> _markDone(BuildContext context, WidgetRef ref) async {
+  Future<void> _markDone() async {
+    setState(() => _busy = true);
     try {
-      await ref.read(groupsRepositoryProvider).markChoreDone(chore.id);
+      await ref.read(groupsRepositoryProvider).markChoreDone(widget.chore.id);
       Haptics.commit();
-      ref.invalidate(groupChoresProvider(groupId));
+      ref.invalidate(groupChoresProvider(widget.groupId));
     } on ApiException catch (e) {
-      if (context.mounted) showAppSnackBar(context, e.message);
+      if (mounted) showAppSnackBar(context, e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 }

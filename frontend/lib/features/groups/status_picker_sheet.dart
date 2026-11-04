@@ -3,6 +3,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../core/local_time.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/app_sheet.dart';
 import '../../theme/dimens.dart';
 import '../../theme/motion.dart';
 import '../../theme/status_widgets.dart';
@@ -23,10 +24,8 @@ Future<(HouseStatus, int?)?> showStatusPickerSheet(
   required HouseStatus current,
   required int? currentDurationMinutes,
 }) {
-  return showModalBottomSheet<(HouseStatus, int?)>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
+  return showAppSheet<(HouseStatus, int?)>(
+    context,
     builder: (_) => _StatusPickerSheet(
       initialStatus: current,
       initialDurationMinutes: currentDurationMinutes,

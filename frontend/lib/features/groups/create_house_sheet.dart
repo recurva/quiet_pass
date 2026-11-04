@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../core/api_client.dart';
+import '../../theme/app_sheet.dart';
 import '../../theme/dimens.dart';
 import '../../theme/theme_x.dart';
 import 'groups_providers.dart';
@@ -10,10 +11,8 @@ import 'groups_providers.dart';
 /// Shows the create-house sheet and returns once it's closed. Callers
 /// should invalidate [myGroupsProvider] afterwards to pick up the new group.
 Future<void> showCreateHouseSheet(BuildContext context) {
-  return showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
+  return showAppSheet<void>(
+    context,
     builder: (_) => const _CreateHouseSheet(),
   );
 }

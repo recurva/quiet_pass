@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
+import '../../theme/app_sheet.dart';
 import '../../theme/dimens.dart';
 import '../../theme/theme_x.dart';
 import 'nudge_wire.dart';
@@ -13,10 +14,8 @@ import 'nudge_wire.dart';
 /// its error (the actual send happens in the caller, after this sheet has
 /// already closed).
 Future<String?> showCustomNudgeSheet(BuildContext context) {
-  return showModalBottomSheet<String>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
+  return showAppSheet<String>(
+    context,
     builder: (_) => const _CustomNudgeSheet(),
   );
 }

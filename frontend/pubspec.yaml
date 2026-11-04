@@ -62,6 +62,11 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: 4.0.0
 
+  # Fakes FirebaseAuth for api_client_test.dart, without needing the real
+  # Firebase plugin's platform channels set up (see that test's doc
+  # comment, and test/widget_test.dart's).
+  mocktail: ^1.0.4
+
   # App icon / splash screen generation (dev-only — these tools run once
   # at build-setup time and ship nothing into the app itself)
   flutter_launcher_icons: ^0.14.2

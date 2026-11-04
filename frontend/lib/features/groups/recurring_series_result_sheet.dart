@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../core/local_time.dart';
+import '../../theme/app_sheet.dart';
 import '../../theme/dimens.dart';
 import '../../theme/theme_x.dart';
 import 'group_models.dart';
@@ -16,10 +17,15 @@ Future<void> showRecurringSeriesResultSheet(
   BuildContext context, {
   required RecurringSeriesCreateResult result,
 }) {
-  return showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
+  // scrollable: false — this sheet already manages its own internal
+  // scrolling for the (possibly long) created/skipped lists via the
+  // Flexible + SingleChildScrollView below, while keeping the title and
+  // stats line fixed above it. Wrapping that in showAppSheet's own outer
+  // SingleChildScrollView as well would hand that Flexible an unbounded
+  // height to flex against, which Flutter can't lay out.
+  return showAppSheet<void>(
+    context,
+    scrollable: false,
     builder: (_) => _RecurringSeriesResultSheet(result: result),
   );
 }

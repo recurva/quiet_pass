@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
+import '../../theme/app_sheet.dart';
 import '../../theme/dimens.dart';
 import '../../theme/motion.dart';
 import '../../theme/theme_x.dart';
@@ -30,10 +31,8 @@ const _weekdayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 /// the backend's UTC weekday/hour/minute only at submit time. Returns
 /// null if dismissed without confirming.
 Future<RecurringSeriesInput?> showRecurringSeriesSheet(BuildContext context, {required String spaceName}) {
-  return showModalBottomSheet<RecurringSeriesInput>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
+  return showAppSheet<RecurringSeriesInput>(
+    context,
     builder: (_) => _RecurringSeriesSheet(spaceName: spaceName),
   );
 }

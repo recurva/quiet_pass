@@ -4,6 +4,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../core/api_client.dart';
 import '../../core/local_time.dart';
+import '../../theme/app_sheet.dart';
 import '../../theme/dimens.dart';
 import '../../theme/motion.dart';
 import '../../theme/theme_x.dart';
@@ -36,10 +37,8 @@ Future<(AppReservation, AppChore)?> showBookingSheet(
   required AppSpace space,
   List<AppReservation> existingReservations = const [],
 }) {
-  return showModalBottomSheet<(AppReservation, AppChore)?>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
+  return showAppSheet<(AppReservation, AppChore)?>(
+    context,
     builder: (_) => _BookingSheet(
       groupId: groupId,
       space: space,
@@ -165,10 +164,22 @@ class _BookingSheetState extends ConsumerState<_BookingSheet> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        _startTime.toLocalDateTimeLabel(),
-                        style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+                      // Expanded + ellipsis, not a bare Text: at a high OS
+                      // text-scale setting (or just a long locale date
+                      // string), this value previously had nothing to
+                      // keep it from pushing the trailing icon — and the
+                      // Row itself — past the sheet's width. Clamping the
+                      // *label* text scale above this card (see
+                      // _sectionCard) doesn't cover this value row at all.
+                      Expanded(
+                        child: Text(
+                          _startTime.toLocalDateTimeLabel(),
+                          style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
+                      SizedBox(width: Space.sm.w),
                       Icon(
                         Icons.edit_calendar_outlined,
                         color: overlapsExisting ? c.call.solid : c.accent,
@@ -243,12 +254,22 @@ class _BookingSheetState extends ConsumerState<_BookingSheet> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: context.text.labelLarge?.copyWith(
-              color: c.ink3,
-              fontSize: 11.sp,
-              letterSpacing: 0.5,
+          // Clamped separately from the rest of the sheet's body text: at a
+          // high OS text-scale setting, this all-caps label growing freely
+          // (alongside everything else in the sheet) was enough on its own
+          // to push the sheet past its available height — see
+          // showAppSheet's doc comment for the scroll/height-cap half of
+          // this fix; this keeps the label itself from being the thing
+          // that forces the overflow in the first place.
+          MediaQuery.withClampedTextScaling(
+            maxScaleFactor: 1.3,
+            child: Text(
+              label,
+              style: context.text.labelLarge?.copyWith(
+                color: c.ink3,
+                fontSize: 11.sp,
+                letterSpacing: 0.5,
+              ),
             ),
           ),
           SizedBox(height: Space.sm.h),

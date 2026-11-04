@@ -4,6 +4,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../core/api_client.dart';
 import '../../core/validation.dart';
+import '../../theme/app_sheet.dart';
 import '../../theme/dimens.dart';
 import '../../theme/theme_x.dart';
 import 'groups_providers.dart';
@@ -15,12 +16,10 @@ import 'groups_providers.dart';
 /// after-the-fact "change my name" affordance, not a fallback for
 /// anything ever arriving unnamed.
 Future<bool> showEditNameSheet(BuildContext context, {required String initialValue}) {
-  return showModalBottomSheet<bool>(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (_) => _EditNameSheet(initialValue: initialValue),
-      ).then((saved) => saved ?? false);
+  return showAppSheet<bool>(
+    context,
+    builder: (_) => _EditNameSheet(initialValue: initialValue),
+  ).then((saved) => saved ?? false);
 }
 
 class _EditNameSheet extends ConsumerStatefulWidget {

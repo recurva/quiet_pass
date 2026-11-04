@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
+import '../../theme/app_sheet.dart';
 import '../../theme/dimens.dart';
 import '../../theme/theme_x.dart';
 
@@ -12,10 +13,8 @@ Future<(String, String)?> showWifiSheet(
   String? initialSsid,
   String? initialPassword,
 }) {
-  return showModalBottomSheet<(String, String)>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
+  return showAppSheet<(String, String)>(
+    context,
     builder: (_) => _WifiSheet(initialSsid: initialSsid, initialPassword: initialPassword),
   );
 }

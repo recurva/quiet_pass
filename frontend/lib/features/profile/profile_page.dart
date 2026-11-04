@@ -4,6 +4,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../core/api_client.dart';
+import '../../theme/app_sheet.dart';
 import '../../theme/app_snackbar.dart';
 import '../../theme/avatar.dart';
 import '../../theme/dimens.dart';
@@ -434,10 +435,8 @@ class _AccountActionsCardState extends ConsumerState<_AccountActionsCard> {
   }
 
   Future<bool?> _showDeleteConfirmSheet(BuildContext context) {
-    return showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
+    return showAppSheet<bool>(
+      context,
       builder: (sheetContext) => _DeleteAccountConfirmSheet(),
     );
   }

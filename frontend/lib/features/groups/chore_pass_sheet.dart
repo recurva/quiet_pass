@@ -4,6 +4,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../core/api_client.dart';
 import '../../core/local_time.dart';
+import '../../theme/app_sheet.dart';
 import '../../theme/dimens.dart';
 import '../../theme/motion.dart';
 import '../../theme/theme_x.dart';
@@ -15,10 +16,8 @@ import 'groups_providers.dart';
 /// client-side comparison against `now()` at render time — nothing on the
 /// backend fires at the chore's due time; see AppChore's doc comment.
 Future<void> showChorePassSheet(BuildContext context, {required String groupId, required AppChore chore}) {
-  return showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
+  return showAppSheet<void>(
+    context,
     builder: (_) => _ChorePassSheet(groupId: groupId, chore: chore),
   );
 }

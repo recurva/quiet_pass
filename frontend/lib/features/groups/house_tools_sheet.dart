@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
+import '../../theme/app_sheet.dart';
 import '../../theme/dimens.dart';
 import '../../theme/theme_x.dart';
 
@@ -13,9 +14,8 @@ import '../../theme/theme_x.dart';
 enum HouseTool { agreements, wifi }
 
 Future<HouseTool?> showHouseToolsSheet(BuildContext context) {
-  return showModalBottomSheet<HouseTool>(
-    context: context,
-    backgroundColor: Colors.transparent,
+  return showAppSheet<HouseTool>(
+    context,
     builder: (_) => const _HouseToolsSheet(),
   );
 }
