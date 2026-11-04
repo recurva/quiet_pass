@@ -107,7 +107,7 @@ class _AccountCardState extends ConsumerState<_AccountCard> {
       child: Column(
         children: [
           PressFeedback(
-            onTap: _busy ? null : _pickAndUpload,
+            onTap: _busy ? null : _onAvatarTap,
             child: Stack(
               clipBehavior: Clip.none,
               children: [
@@ -153,18 +153,6 @@ class _AccountCardState extends ConsumerState<_AccountCard> {
                   style: context.text.bodySmall?.copyWith(color: c.accent, fontWeight: FontWeight.w600),
                 ),
               ),
-              if (widget.avatarUrl != null) ...[
-                SizedBox(width: Space.sm.w),
-                Text('·', style: context.text.bodySmall?.copyWith(color: c.ink3)),
-                SizedBox(width: Space.sm.w),
-                PressFeedback(
-                  onTap: _busy ? null : _remove,
-                  child: Text(
-                    'Remove photo',
-                    style: context.text.bodySmall?.copyWith(color: c.call.solid, fontWeight: FontWeight.w600),
-                  ),
-                ),
-              ],
             ],
           ),
         ],
@@ -176,10 +164,27 @@ class _AccountCardState extends ConsumerState<_AccountCard> {
     await showEditNameSheet(context, initialValue: widget.name);
   }
 
-  Future<void> _pickAndUpload() async {
-    final source = await _showPhotoSourceSheet(context);
-    if (source == null || !mounted) return;
+  /// Routes the sheet's choice to the right follow-up: picking a photo
+  /// source goes straight into [ImagePicker], while "Remove photo" (only
+  /// offered when [ProfilePage._AccountCard.avatarUrl] is set — see
+  /// [_showPhotoSourceSheet]) asks for confirmation first, same as any
+  /// other destructive action in this app (removing a space, removing a
+  /// housemate, deleting the account).
+  Future<void> _onAvatarTap() async {
+    final action = await _showPhotoSourceSheet(context, hasPhoto: widget.avatarUrl != null);
+    if (action == null || !mounted) return;
 
+    switch (action) {
+      case _PhotoPickAction.camera:
+        await _pickAndUpload(ImageSource.camera);
+      case _PhotoPickAction.gallery:
+        await _pickAndUpload(ImageSource.gallery);
+      case _PhotoPickAction.remove:
+        await _confirmAndRemove();
+    }
+  }
+
+  Future<void> _pickAndUpload(ImageSource source) async {
     final picked = await ImagePicker().pickImage(source: source, imageQuality: 90);
     if (picked == null || !mounted) return;
 
@@ -210,9 +215,15 @@ class _AccountCardState extends ConsumerState<_AccountCard> {
   /// implementation has no native camera capture to hand back a file the
   /// same way the gallery picker does, the same `kIsWeb` split
   /// push_client.dart already uses for its own web/native difference.
-  Future<ImageSource?> _showPhotoSourceSheet(BuildContext context) {
+  /// "Remove photo" is a third choice in this same sheet — styled like
+  /// the other two rows but tinted with [AppColors.call] (this app's
+  /// existing destructive-action color, already used for removing a
+  /// space, removing a housemate, and deleting the account) — and only
+  /// offered when [hasPhoto] is true, since there's nothing to remove
+  /// otherwise.
+  Future<_PhotoPickAction?> _showPhotoSourceSheet(BuildContext context, {required bool hasPhoto}) {
     final c = context.colors;
-    return showAppSheet<ImageSource>(
+    return showAppSheet<_PhotoPickAction>(
       context,
       builder: (sheetContext) => Padding(
         padding: EdgeInsets.all(Space.base.w),
@@ -233,14 +244,86 @@ class _AccountCardState extends ConsumerState<_AccountCard> {
                 _PhotoSourceRow(
                   icon: Icons.camera_alt_outlined,
                   label: 'Take a photo',
-                  onTap: () => Navigator.of(sheetContext).pop(ImageSource.camera),
+                  onTap: () => Navigator.of(sheetContext).pop(_PhotoPickAction.camera),
                 ),
                 SizedBox(height: Space.sm.h),
               ],
               _PhotoSourceRow(
                 icon: Icons.photo_library_outlined,
                 label: 'Choose from library',
-                onTap: () => Navigator.of(sheetContext).pop(ImageSource.gallery),
+                onTap: () => Navigator.of(sheetContext).pop(_PhotoPickAction.gallery),
+              ),
+              if (hasPhoto) ...[
+                SizedBox(height: Space.sm.h),
+                _PhotoSourceRow(
+                  icon: Icons.delete_outline,
+                  label: 'Remove photo',
+                  destructive: true,
+                  onTap: () => Navigator.of(sheetContext).pop(_PhotoPickAction.remove),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Confirms before actually removing — same confirm-sheet shape
+  /// GroupDetailPage's "Leave house" and HousematesPage's "Remove from
+  /// house" already use (title + body + Cancel/destructive-FilledButton
+  /// row), rather than removing the moment the sheet row is tapped.
+  Future<void> _confirmAndRemove() async {
+    final confirmed = await _showRemovePhotoConfirmSheet(context);
+    if (confirmed != true || !mounted) return;
+    await _remove();
+  }
+
+  Future<bool?> _showRemovePhotoConfirmSheet(BuildContext context) {
+    final c = context.colors;
+    return showAppSheet<bool>(
+      context,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.all(Space.base.w),
+        child: Container(
+          padding: EdgeInsets.all(Space.base.w),
+          decoration: BoxDecoration(
+            color: c.surface,
+            borderRadius: BorderRadius.circular(Radii.lg.r),
+            border: Border.all(color: c.line),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Remove your photo?', style: context.text.titleLarge),
+              SizedBox(height: Space.sm.h),
+              Text(
+                "Your avatar will go back to your initials. You can add a new photo anytime.",
+                style: context.text.bodySmall?.copyWith(color: c.ink3),
+              ),
+              SizedBox(height: Space.lg.h),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(sheetContext).pop(false),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: c.ink2,
+                        side: BorderSide(color: c.line2),
+                      ),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  SizedBox(width: Space.sm.w),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () => Navigator.of(sheetContext).pop(true),
+                      style: FilledButton.styleFrom(backgroundColor: c.call.solid),
+                      child: const Text('Remove'),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -264,19 +347,36 @@ class _AccountCardState extends ConsumerState<_AccountCard> {
   }
 }
 
+/// What [_AccountCardState._showPhotoSourceSheet] hands back: either a
+/// photo source to pass straight to [ImagePicker], or `remove` — handled
+/// by [_AccountCardState._onAvatarTap], which asks for confirmation
+/// before actually removing.
+enum _PhotoPickAction { camera, gallery, remove }
+
 /// One row in [_AccountCardState._showPhotoSourceSheet] — same shape as
 /// house_tools_sheet.dart's `_ToolRow`, not shared with it since this one's
-/// scoped to a single screen.
+/// scoped to a single screen. [destructive] tints the icon/label with this
+/// app's existing destructive-action color ([AppColors.call], via
+/// `context.colors`) instead of a one-off red, for "Remove photo" — the
+/// row keeps the exact same chrome as the other two so it still reads as
+/// one consistent list, not a special case.
 class _PhotoSourceRow extends StatelessWidget {
-  const _PhotoSourceRow({required this.icon, required this.label, required this.onTap});
+  const _PhotoSourceRow({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.destructive = false,
+  });
 
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+  final bool destructive;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final color = destructive ? c.call.solid : c.ink2;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(Radii.md.r),
@@ -290,9 +390,9 @@ class _PhotoSourceRow extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(icon, size: 20.r, color: c.ink2),
+            Icon(icon, size: 20.r, color: color),
             SizedBox(width: Space.sm.w),
-            Text(label, style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600)),
+            Text(label, style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600, color: color)),
           ],
         ),
       ),

@@ -256,7 +256,12 @@ class _SpacesPageState extends ConsumerState<SpacesPage> with WidgetsBindingObse
             children: [
               Text('Spaces', style: context.text.titleLarge),
               SizedBox(height: 2.h),
-              Text(widget.groupName, style: context.text.bodySmall),
+              Text(
+                widget.groupName,
+                style: context.text.bodySmall,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ],
           ),
         ),
@@ -449,19 +454,27 @@ class _SpaceCard extends ConsumerWidget {
                 child: Text(
                   space.name,
                   style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-              Text(
-                activeNow != null
-                    ? 'In use'
-                    : (nextToday != null
-                        ? 'Reserved · ${nextToday.startTime.toLocalTimeLabel()}'
-                        : 'Free'),
-                style: context.text.bodyMedium?.copyWith(
-                  color: activeNow != null
-                      ? c.call.solid
-                      : (nextToday != null ? c.focus.solid : c.open.solid),
-                  fontWeight: FontWeight.w600,
+              SizedBox(width: Space.xs.w),
+              Flexible(
+                child: Text(
+                  activeNow != null
+                      ? 'In use'
+                      : (nextToday != null
+                          ? 'Reserved · ${nextToday.startTime.toLocalTimeLabel()}'
+                          : 'Free'),
+                  style: context.text.bodyMedium?.copyWith(
+                    color: activeNow != null
+                        ? c.call.solid
+                        : (nextToday != null ? c.focus.solid : c.open.solid),
+                    fontWeight: FontWeight.w600,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.right,
                 ),
               ),
               if (isAdmin) ...[
@@ -695,7 +708,7 @@ class _SpaceCard extends ConsumerWidget {
       ref.invalidate(groupChoresProvider(groupId));
       ref.invalidate(groupMyRecurringSeriesProvider(groupId));
       if (context.mounted) {
-        await showRecurringSeriesResultSheet(context, result: result);
+        await showRecurringSeriesResultSheet(context, spaceName: space.name, result: result);
       }
     } on ApiException catch (e) {
       if (context.mounted) showAppSnackBar(context, e.message);
@@ -750,6 +763,8 @@ class _ReservationRowState extends ConsumerState<_ReservationRow> {
             ' – ${widget.reservation.endTime.toLocalTimeLabel()}'
             '${widget.reservation.recurringSeriesId != null ? ' · weekly' : ''}',
             style: context.text.bodySmall,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ),
         // An admin viewing someone else's currently-active booking gets
@@ -1044,11 +1059,15 @@ class _RecurringSeriesRowState extends ConsumerState<_RecurringSeriesRow> {
                 Text(
                   widget.spaceName,
                   style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 SizedBox(height: 1.h),
                 Text(
                   '$dayLabels · ${sampleStart.toLocalTimeLabel()} – ${sampleEnd.toLocalTimeLabel()}',
                   style: context.text.bodySmall,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
@@ -1131,6 +1150,8 @@ class _UrgentAccessBanner extends StatelessWidget {
               child: Text(
                 '$requesterName needs $spaceName for 5 minutes.',
                 style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
             SizedBox(width: Space.sm.w),
