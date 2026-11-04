@@ -15,22 +15,21 @@ import '../../theme/app_snackbar.dart';
 import '../../theme/avatar.dart';
 import '../../theme/dimens.dart';
 import '../../theme/motion.dart';
-import '../../theme/status_widgets.dart';
 import '../../theme/theme_x.dart';
 import 'agreements_page.dart';
+import 'chores_page.dart';
 import 'custom_nudge_sheet.dart';
 import 'dinner_wire.dart';
 import 'group_models.dart';
 import 'groups_providers.dart';
 import 'house_status_wire.dart';
 import 'house_tools_sheet.dart';
+import 'housemates_page.dart';
 import 'nudge_wire.dart';
 import 'quiet_pulse_sheet.dart';
 import 'spaces_page.dart';
 import 'status_picker_sheet.dart';
 import 'wifi_page.dart';
-
-enum _MemberAction { promote, demote, remove }
 
 /// Reached by tapping a house on GroupsHomePage. Shows housemates with
 /// their live status (pushed over the group's WebSocket) and lets the
@@ -78,9 +77,11 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
     final now = DateTime.now().toUtc();
     ref.watch(groupMembersLiveRefreshProvider(widget.group.id));
     ref.watch(groupDinnerLiveRefreshProvider(widget.group.id));
+    ref.watch(groupChoresLiveRefreshProvider(widget.group.id));
     final membersAsync = ref.watch(groupMembersProvider(widget.group.id));
     final dinnerAsync = ref.watch(groupDinnerSummaryProvider(widget.group.id));
     final statusesAsync = ref.watch(groupStatusesProvider(widget.group.id));
+    final choresAsync = ref.watch(groupChoresProvider(widget.group.id));
     final me = ref.watch(currentBackendUserProvider).valueOrNull;
     final statuses = statusesAsync.valueOrNull ?? const <String, MemberStatus>{};
     final myEntry = me == null ? null : statuses[me.id];
@@ -89,6 +90,7 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
     final members = membersAsync.valueOrNull;
     final myMembership =
         me == null || members == null ? null : members.where((m) => m.user.id == me.id).firstOrNull;
+    final iAmAdmin = myMembership?.role == 'admin';
 
     // Catches being kicked while this screen is open: the member list
     // just refetched (via groupMembersLiveRefreshProvider, above) and no
@@ -146,81 +148,23 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
                       child: _inviteCodePill(context),
                     ),
                     SizedBox(height: Space.base.h),
+                    // Spaces, Housemates, and Chores: one consistent row of
+                    // entry cards (leading icon, label, trailing summary,
+                    // chevron) grouped right under the house header — each
+                    // used to have its own inline block further down this
+                    // screen (or, for chores, on SpacesPage); both moved to
+                    // their own pages so this screen stays a short,
+                    // consistent launch point rather than growing a new
+                    // inline section per feature.
                     _spacesEntry(context),
+                    SizedBox(height: Space.sm.h),
+                    _housematesEntry(context, members, iAmAdmin, me?.id),
+                    SizedBox(height: Space.sm.h),
+                    _choresEntry(context, choresAsync, me?.id),
                     SizedBox(height: Space.lg.h),
                     _yourStatusCard(context, myEffectiveStatus, myEntry?.expiresAt),
                     SizedBox(height: Space.base.h),
                     _dinnerCard(context, dinnerAsync, members, me?.id),
-                    SizedBox(height: Space.base.h),
-                    // Housemates right after Dinner — kept reachable
-                    // without a long scroll. The nudges card (Quiet Pulse
-                    // plus the quick-alerts row) moved below it; see that
-                    // method's own doc comment.
-                    Text(
-                      'HOUSEMATES',
-                      style: context.text.labelLarge?.copyWith(
-                        color: c.ink3,
-                        fontSize: 11.sp,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                    SizedBox(height: Space.sm.h),
-                    Container(
-                      width: double.infinity,
-                      decoration: BoxDecoration(
-                        color: c.surface,
-                        borderRadius: BorderRadius.circular(Radii.md.r),
-                        border: Border.all(color: c.line),
-                      ),
-                      child: membersAsync.when(
-                        loading: () => const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 24),
-                          child: Center(child: CircularProgressIndicator()),
-                        ),
-                        error: (error, _) => Padding(
-                          padding: EdgeInsets.all(Space.base.w),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  friendlyErrorMessage(error),
-                                  style: context.text.bodySmall?.copyWith(color: c.ink3),
-                                ),
-                              ),
-                              SizedBox(width: Space.sm.w),
-                              PressFeedback(
-                                onTap: () => ref.invalidate(groupMembersProvider(widget.group.id)),
-                                child: Text(
-                                  'Retry',
-                                  style: context.text.bodySmall?.copyWith(
-                                    color: c.accent,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        data: (members) {
-                          final iAmAdmin = myMembership?.role == 'admin';
-                          return Column(
-                            children: [
-                              for (var i = 0; i < members.length; i++) ...[
-                                if (i > 0) Divider(height: 1, color: c.line),
-                                _memberRow(
-                                  context,
-                                  members[i],
-                                  statuses[members[i].user.id],
-                                  now,
-                                  isMe: me != null && members[i].user.id == me.id,
-                                  canManage: iAmAdmin && myMembership != null,
-                                ),
-                              ],
-                            ],
-                          );
-                        },
-                      ),
-                    ),
                     SizedBox(height: Space.base.h),
                     _nudgesCard(context),
                   ],
@@ -363,13 +307,108 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
   /// stays directly on screen as its own clear entry, not buried in a
   /// sheet.
   Widget _spacesEntry(BuildContext context) {
-    final c = context.colors;
-    return InkWell(
+    return _entryCard(
+      context,
+      icon: Icons.meeting_room_outlined,
+      label: 'Spaces',
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => SpacesPage(groupId: widget.group.id, groupName: widget.group.name),
         ),
       ),
+    );
+  }
+
+  /// Trailing summary: how many housemates, plus a small preview of their
+  /// avatars — enough to recognize the house at a glance without opening
+  /// the full roster. [members] is whatever's currently loaded (null while
+  /// loading or on error), in which case the card just shows no trailing
+  /// summary rather than a spinner — this is a navigation entry, not the
+  /// place to surface a members-list error.
+  Widget _housematesEntry(
+    BuildContext context,
+    List<HouseMember>? members,
+    bool isAdmin,
+    String? myUserId,
+  ) {
+    return _entryCard(
+      context,
+      icon: Icons.groups_outlined,
+      label: 'Housemates',
+      trailing: members == null
+          ? null
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '${members.length} ${members.length == 1 ? 'member' : 'members'}',
+                  style: context.text.bodyMedium?.copyWith(color: context.colors.ink3),
+                ),
+                if (members.isNotEmpty) ...[
+                  SizedBox(width: Space.sm.w),
+                  _AvatarStack(members: members, avatarSize: 18, maxAvatars: 3),
+                ],
+              ],
+            ),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => HousematesPage(
+            groupId: widget.group.id,
+            groupName: widget.group.name,
+            isAdmin: isAdmin,
+            myUserId: myUserId,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Trailing summary: how many chores are still outstanding across the
+  /// whole house (not just the caller's own) — "1 due" in the warm amber
+  /// a due-but-not-yet-late chore already uses elsewhere, or "All done" in
+  /// green once nothing's left. [choresAsync] not yet resolved, or errored,
+  /// shows no trailing summary — same "entry card never surfaces its own
+  /// error" choice as [_housematesEntry].
+  Widget _choresEntry(BuildContext context, AsyncValue<List<AppChore>> choresAsync, String? myUserId) {
+    final c = context.colors;
+    final chores = choresAsync.valueOrNull;
+    final dueCount = chores?.where((chore) => !chore.done).length;
+    return _entryCard(
+      context,
+      icon: Icons.checklist_rounded,
+      label: 'Chores',
+      trailing: dueCount == null
+          ? null
+          : Text(
+              dueCount == 0 ? 'All done' : '$dueCount due',
+              style: context.text.bodyMedium?.copyWith(
+                color: dueCount == 0 ? c.open.solid : c.focus.solid,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ChoresPage(groupId: widget.group.id, groupName: widget.group.name),
+        ),
+      ),
+    );
+  }
+
+  /// Shared shape for every entry card grouped under the house header:
+  /// leading icon, label, an optional trailing summary, and a chevron —
+  /// [_spacesEntry] is the original of this shape; [_housematesEntry] and
+  /// [_choresEntry] now match it instead of each inventing their own inline
+  /// list lower on this screen.
+  Widget _entryCard(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    Widget? trailing,
+  }) {
+    final c = context.colors;
+    return InkWell(
+      onTap: onTap,
       borderRadius: BorderRadius.circular(Radii.md.r),
       child: Container(
         width: double.infinity,
@@ -381,14 +420,18 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
         ),
         child: Row(
           children: [
-            Icon(Icons.meeting_room_outlined, size: 20.r, color: c.ink2),
+            Icon(icon, size: 20.r, color: c.ink2),
             SizedBox(width: Space.md.w),
             Expanded(
               child: Text(
-                'Spaces',
+                label,
                 style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
               ),
             ),
+            if (trailing != null) ...[
+              trailing,
+              SizedBox(width: Space.xs.w),
+            ],
             Icon(Icons.chevron_right, size: 20.r, color: c.ink3),
           ],
         ),
@@ -835,151 +878,6 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
     }
   }
 
-  Widget _memberRow(
-    BuildContext context,
-    HouseMember member,
-    MemberStatus? status,
-    DateTime now, {
-    required bool isMe,
-    required bool canManage,
-  }) {
-    final c = context.colors;
-    final effectiveStatus = status?.effectiveStatus(now) ?? HouseStatus.openToChat;
-    final effectiveExpiresAt = effectiveStatus == HouseStatus.openToChat ? null : status?.expiresAt;
-    // An admin can manage anyone but themself here — self-removal is
-    // "Leave house" (see _header), a deliberately separate, more visible
-    // action rather than being buried in this per-row menu.
-    final showMenu = canManage && !isMe;
-    return FadeSlideIn(
-      key: ValueKey('member-${member.membershipId}'),
-      child: Container(
-      width: double.infinity,
-      padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.md.h),
-      // No border/card of its own any more — the parent HOUSEMATES
-      // container (see build()) supplies the single surrounding card, with
-      // a hairline Divider between rows instead of each row being its own
-      // bordered card.
-      // A Column, not a single Row with the badge as a trailing element —
-      // "Sleeping Early · until 10:34 PM" is long enough that squeezing it
-      // into the same row as the name/role pushed those into wrapping
-      // ("Collector" → "Collec-/tor") on narrower phones. The badge gets
-      // its own row below instead, so name/role always have the full
-      // width to themselves.
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Avatar(name: member.user.displayName, photoUrl: member.user.avatarUrl, size: 34.r),
-              SizedBox(width: Space.md.w),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      member.user.displayName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
-                    ),
-                    SizedBox(height: 1.h),
-                    Text(
-                      member.role,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: context.text.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-              if (showMenu)
-                PopupMenuButton<_MemberAction>(
-                  icon: Icon(Icons.more_vert, color: c.ink2, size: 20.r),
-                  onSelected: (action) => switch (action) {
-                    _MemberAction.promote => _promoteMember(member),
-                    _MemberAction.demote => _demoteMember(member),
-                    _MemberAction.remove => _removeMember(member),
-                  },
-                  itemBuilder: (context) => [
-                    if (member.role != 'admin')
-                      const PopupMenuItem(
-                        value: _MemberAction.promote,
-                        child: Text('Make admin'),
-                      )
-                    else
-                      const PopupMenuItem(
-                        value: _MemberAction.demote,
-                        child: Text('Remove admin'),
-                      ),
-                    PopupMenuItem(
-                      value: _MemberAction.remove,
-                      child: Text('Remove from house', style: TextStyle(color: c.call.solid)),
-                    ),
-                  ],
-                ),
-            ],
-          ),
-          SizedBox(height: Space.sm.h),
-          Padding(
-            padding: EdgeInsets.only(left: 34.r + Space.md.w),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: AnimatedValueSwitcher(
-                value: (effectiveStatus, effectiveExpiresAt),
-                builder: (context) =>
-                    StatusBadge(status: effectiveStatus, expiresAt: effectiveExpiresAt),
-              ),
-            ),
-          ),
-        ],
-      ),
-      ),
-    );
-  }
-
-  Future<void> _promoteMember(HouseMember member) async {
-    try {
-      await ref.read(groupsRepositoryProvider).promoteToAdmin(member.membershipId);
-      ref.invalidate(groupMembersProvider(widget.group.id));
-      if (mounted) showAppSnackBar(context, '${member.user.displayName} is now an admin.');
-    } on ApiException catch (e) {
-      if (mounted) showAppSnackBar(context, e.message);
-    }
-  }
-
-  Future<void> _demoteMember(HouseMember member) async {
-    try {
-      await ref.read(groupsRepositoryProvider).demoteToMember(member.membershipId);
-      ref.invalidate(groupMembersProvider(widget.group.id));
-      if (mounted) {
-        showAppSnackBar(context, '${member.user.displayName} is no longer an admin.');
-      }
-    } on ApiException catch (e) {
-      // Covers the backend's 409 ("would leave the house with no admin")
-      // the same way every other action-failure here does — the message
-      // itself already explains what to do (promote someone else first).
-      if (mounted) showAppSnackBar(context, e.message);
-    }
-  }
-
-  Future<void> _removeMember(HouseMember member) async {
-    final confirmed = await _showConfirmSheet(
-      context,
-      title: 'Remove ${member.user.displayName}?',
-      body: 'They\'ll be removed from this house immediately.',
-      confirmLabel: 'Remove',
-    );
-    if (confirmed != true || !mounted) return;
-
-    try {
-      await ref.read(groupsRepositoryProvider).removeMembership(member.membershipId);
-      ref.invalidate(groupMembersProvider(widget.group.id));
-      if (mounted) showAppSnackBar(context, '${member.user.displayName} was removed.');
-    } on ApiException catch (e) {
-      if (mounted) showAppSnackBar(context, e.message);
-    }
-  }
-
   Future<void> _leaveGroup(String myMembershipId) async {
     final confirmed = await _showConfirmSheet(
       context,
@@ -1072,19 +970,22 @@ class _GroupDetailPageState extends ConsumerState<GroupDetailPage> {
   }
 }
 
-/// A small row of overlapping avatars for whoever's home for dinner — the
-/// mockup's "overlapping avatar stack" next to the home/out count. Purely
-/// decorative on top of [Avatar]; no new avatar-rendering logic.
+/// A small row of overlapping avatars — the mockup's "overlapping avatar
+/// stack" next to a count, used for whoever's home for dinner and (with a
+/// smaller [avatarSize] and tighter [maxAvatars]) the Housemates entry
+/// card's preview. Purely decorative on top of [Avatar]; no new
+/// avatar-rendering logic.
 class _AvatarStack extends StatelessWidget {
-  const _AvatarStack({required this.members});
+  const _AvatarStack({required this.members, this.avatarSize = 24, this.maxAvatars = 4});
 
   final List<HouseMember> members;
+  final double avatarSize;
+  final int maxAvatars;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    const avatarSize = 24.0;
-    final shown = members.take(4).toList();
+    final shown = members.take(maxAvatars).toList();
     final overlap = avatarSize.r * 0.6;
     return SizedBox(
       width: avatarSize.r + (shown.length - 1) * overlap,
