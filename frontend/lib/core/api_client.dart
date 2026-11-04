@@ -21,14 +21,52 @@ class ApiException implements Exception {
   String toString() => 'ApiException($statusCode): $message';
 }
 
+/// Fixed, human copy for status codes that carry no reliable app-level
+/// message of their own — a mismatched route (404/405, see the Add/Delete
+/// Space bug this was written for), an authorization check that never
+/// bothers to explain itself (403), or a 500 (an unhandled server
+/// exception's `detail` is Starlette's generic "Internal Server Error",
+/// never anything written for a user). Every one of these would otherwise
+/// surface a raw HTTP reason phrase straight from the backend's routing
+/// layer — "Method Not Allowed", "Not Found" — which is Starlette/FastAPI
+/// internals, not something to show a user.
+///
+/// Deliberately excludes 400/409/422: see [friendlyErrorMessage].
+const _statusFallbackMessages = <int, String>{
+  403: "You don't have permission to do that.",
+  404: "That wasn't found.",
+  405: "That action isn't available.",
+  500: "Something went wrong on our end.",
+};
+
 /// What every `error: (error, _) => ...` branch in this app should show,
 /// instead of interpolating the raw error (`'$error'`) directly: an
 /// [ApiException] already carries a message meant to be read by a user
 /// (either the backend's own `detail`, or [ApiClient._guarded]'s
 /// connection-failure text); anything else reaching this far is an
 /// unexpected error a user was never meant to see the internals of.
+///
+/// 400/409/422 are trusted to already hold a real, hand-written message:
+/// every `HTTPException(400/409, ...)` this backend's routers raise
+/// passes a specific `str(exc)` from one of its own domain errors (e.g.
+/// InvalidStatusDurationError, ReservationConflictError — see
+/// spaces.py/status.py/urgent_access.py/users.py/recurring.py), never a
+/// bare framework default; 422 is FastAPI's own request-validation
+/// failure, whose `detail` [ApiClient._decode] already reduces to the
+/// first validator's own `msg` (e.g. "String should have at least 1
+/// character") rather than the raw list of error objects. Every *other*
+/// status code gets the fixed fallback in [_statusFallbackMessages] (if
+/// one exists for it) instead of ever trusting `detail` to be meant for a
+/// user — a route that doesn't exist (404) or exists under a different
+/// verb (405) has no app-level handler to have written one at all, and
+/// what reaches here instead is Starlette's own routing-layer text.
 String friendlyErrorMessage(Object error) {
-  if (error is ApiException) return error.message;
+  if (error is ApiException) {
+    if (error.statusCode == 400 || error.statusCode == 409 || error.statusCode == 422) {
+      return error.message;
+    }
+    return _statusFallbackMessages[error.statusCode] ?? error.message;
+  }
   return 'Something went wrong. Please try again.';
 }
 
@@ -214,7 +252,27 @@ class ApiClient {
     try {
       final decoded = jsonDecode(response.body);
       if (decoded is Map && decoded['detail'] != null) {
-        message = decoded['detail'].toString();
+        final detail = decoded['detail'];
+        if (detail is String) {
+          message = detail;
+        } else if (detail is List && detail.isNotEmpty) {
+          // FastAPI's own request-validation shape (a 422 from a bad
+          // request body/query, not anything an app route wrote itself):
+          // a list of {"msg": "...", "loc": [...], ...} objects, one per
+          // invalid field. `.toString()`-ing that whole list used to
+          // surface as literal Dart/Python-ish map syntax ("[{type:
+          // string_too_short, loc: [body, name], msg: String should have
+          // at least 1 character, ...}]") — technically not empty, but
+          // not something to show a user either. The first entry's own
+          // `msg` is: FastAPI/Pydantic already phrases it in plain
+          // English, and it's usually the only invalid field anyway.
+          final first = detail.first;
+          message = first is Map && first['msg'] is String
+              ? first['msg'] as String
+              : detail.toString();
+        } else {
+          message = detail.toString();
+        }
       }
     } catch (_) {
       // Non-JSON error body; fall back to the raw text above.

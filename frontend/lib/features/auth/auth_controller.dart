@@ -180,6 +180,17 @@ class OtpFlowController extends StateNotifier<OtpFlowState> {
     );
   }
 
+  /// Re-sends a fresh SMS to the same number — otp_entry_page.dart's
+  /// "Resend code" action. Reuses whatever [_pendingDisplayName] already
+  /// holds (set by the original [sendCode] call and not cleared until a
+  /// sign-in actually completes) rather than requiring the caller to carry
+  /// a copy of it: a Sign Up resend must still be able to create the
+  /// account with the name that was entered, exactly like the first send
+  /// did.
+  Future<void> resendCode(String phoneNumber) {
+    return sendCode(phoneNumber, displayName: _pendingDisplayName);
+  }
+
   Future<void> confirmCode(String smsCode) async {
     // Retryable from either OtpFlowCodeSent (first attempt) or
     // OtpFlowError (a previous attempt was a wrong or expired code) —

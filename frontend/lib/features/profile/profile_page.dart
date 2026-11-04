@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -176,7 +177,10 @@ class _AccountCardState extends ConsumerState<_AccountCard> {
   }
 
   Future<void> _pickAndUpload() async {
-    final picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 90);
+    final source = await _showPhotoSourceSheet(context);
+    if (source == null || !mounted) return;
+
+    final picked = await ImagePicker().pickImage(source: source, imageQuality: 90);
     if (picked == null || !mounted) return;
 
     setState(() => _busy = true);
@@ -199,6 +203,52 @@ class _AccountCardState extends ConsumerState<_AccountCard> {
     }
   }
 
+  /// Lets the caller choose where the new photo comes from, before
+  /// [ImagePicker] is ever invoked — this used to go straight to
+  /// `ImageSource.gallery` with no choice at all. Camera is omitted on
+  /// web (hidden, not offered-then-failing): `image_picker`'s web
+  /// implementation has no native camera capture to hand back a file the
+  /// same way the gallery picker does, the same `kIsWeb` split
+  /// push_client.dart already uses for its own web/native difference.
+  Future<ImageSource?> _showPhotoSourceSheet(BuildContext context) {
+    final c = context.colors;
+    return showAppSheet<ImageSource>(
+      context,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.all(Space.base.w),
+        child: Container(
+          padding: EdgeInsets.all(Space.base.w),
+          decoration: BoxDecoration(
+            color: c.surface,
+            borderRadius: BorderRadius.circular(Radii.lg.r),
+            border: Border.all(color: c.line),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Update photo', style: context.text.titleLarge),
+              SizedBox(height: Space.lg.h),
+              if (!kIsWeb) ...[
+                _PhotoSourceRow(
+                  icon: Icons.camera_alt_outlined,
+                  label: 'Take a photo',
+                  onTap: () => Navigator.of(sheetContext).pop(ImageSource.camera),
+                ),
+                SizedBox(height: Space.sm.h),
+              ],
+              _PhotoSourceRow(
+                icon: Icons.photo_library_outlined,
+                label: 'Choose from library',
+                onTap: () => Navigator.of(sheetContext).pop(ImageSource.gallery),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _remove() async {
     setState(() => _busy = true);
     try {
@@ -211,6 +261,42 @@ class _AccountCardState extends ConsumerState<_AccountCard> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+}
+
+/// One row in [_AccountCardState._showPhotoSourceSheet] — same shape as
+/// house_tools_sheet.dart's `_ToolRow`, not shared with it since this one's
+/// scoped to a single screen.
+class _PhotoSourceRow extends StatelessWidget {
+  const _PhotoSourceRow({required this.icon, required this.label, required this.onTap});
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(Radii.md.r),
+      child: Container(
+        width: double.infinity,
+        padding: EdgeInsets.symmetric(horizontal: Space.md.w, vertical: Space.md.h),
+        decoration: BoxDecoration(
+          color: c.surface2,
+          borderRadius: BorderRadius.circular(Radii.md.r),
+          border: Border.all(color: c.line2),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 20.r, color: c.ink2),
+            SizedBox(width: Space.sm.w),
+            Text(label, style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600)),
+          ],
+        ),
+      ),
+    );
   }
 }
 
